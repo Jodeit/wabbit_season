@@ -53,6 +53,8 @@ export class ScanMesh {
 
     this.count = 0;
     this._cells = new Set();
+    /** Raw {p, n} samples, kept for automatic hiding-spot detection. */
+    this.samples = [];
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._scale = new THREE.Vector3(1, 1, 1);
@@ -105,6 +107,7 @@ export class ScanMesh {
     this._m.compose(p, this._q, this._scale);
     this.patches.setMatrixAt(this.count, this._m);
 
+    this.samples.push({ p: p.clone(), n: (normal ?? UP_FALLBACK).clone() });
     this.count++;
     this.patches.count = this.count;
     this.patches.instanceMatrix.needsUpdate = true;
@@ -216,6 +219,7 @@ export class ScanMesh {
   clear() {
     this.count = 0;
     this._cells.clear();
+    this.samples.length = 0;
     this.patches.count = 0;
     for (const [, entry] of this._tracked) {
       entry.object.parent?.remove(entry.object);

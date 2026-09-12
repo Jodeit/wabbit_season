@@ -151,8 +151,10 @@ try {
   check('a finished sweep reads 100% with nothing marked yet',
     unmarked.pct >= 100, `${unmarked.pct}%`);
   check('the tap-to-mark prompt appears when nothing is marked', unmarked.hint);
-  check('the locked button instructs rather than just disabling',
-    /tap/i.test(unmarked.label) && unmarked.label.length < 30, `"${unmarked.label}"`);
+  // The locked button should say what is happening and how far along it is,
+  // rather than sitting there greyed out with no explanation.
+  check('the locked button explains itself rather than just disabling',
+    /of \d/.test(unmarked.label) && unmarked.label.length < 34, `"${unmarked.label}"`);
 
   console.log('\n• scan readout');
   const readout = await page.evaluate(() => ({
@@ -240,6 +242,77 @@ try {
   console.log(`        "${meshed.desc}"`);
   check('a scene mesh is drawn as a wireframe and reported as meshed',
     meshed.source === 'mesh' && meshed.count === 1, JSON.stringify(meshed));
+
+  console.log('\n• automatic hiding-spot detection');
+  // Feed it a synthetic room the way a device would: two walls meeting in a
+  // corner, plus a bed-height horizontal surface. Nothing is tapped.
+  const auto = await page.evaluate(() => {
+    const { scanMesh, cover, world, scan } = window.WabbitSeason;
+    const T = window.__THREE;
+    cover.clear();
+    scanMesh.clear();
+
+    const nA = new T.Vector3(0, 0, 1);    // wall facing +Z, at z = -3
+    const nB = new T.Vector3(1, 0, 0);    // wall facing +X, at x = -2.5
+    const up = new T.Vector3(0, 1, 0);
+    for (let x = -2.5; x <= 1.5; x += 0.08) {
+      for (let y = 0.1; y <= 2.2; y += 0.12) {
+        scanMesh.addPoint(new T.Vector3(x, y, -3), true, nA);
+      }
+    }
+    for (let z = -3; z <= 0.5; z += 0.08) {
+      for (let y = 0.1; y <= 2.2; y += 0.12) {
+        scanMesh.addPoint(new T.Vector3(-2.5, y, z), true, nB);
+      }
+    }
+    // A bed: horizontal, 0.55m up, in front of the player.
+    for (let x = -0.6; x <= 1.2; x += 0.08) {
+      for (let z = -2.4; z <= -1.0; z += 0.08) {
+        scanMesh.addPoint(new T.Vector3(x, 0.55, z), true, up);
+      }
+    }
+
+    world.camera.position.set(0, 1.55, 0);
+    world.camera.updateMatrixWorld(true);
+    scan.lastDetectAt = -Infinity;
+    scan.time = 999;
+    scan._autoDetect();
+
+    return cover.spots.map((s) => ({
+      kind: s.kind,
+      auto: s.auto,
+      label: s.label,
+      pos: [+s.position.x.toFixed(1), +s.position.y.toFixed(1), +s.position.z.toFixed(1)],
+    }));
+  });
+  for (const a of auto) console.log(`        ${a.auto ? 'auto' : 'tap '} ${a.kind.padEnd(8)} ${JSON.stringify(a.pos)}  ${a.label}`);
+  check('it finds hiding spots with no tapping at all', auto.length >= 2, `${auto.length} found`);
+  check('every one is marked as automatic', auto.every((a) => a.auto));
+  check('it finds the corner where two walls meet',
+    auto.some((a) => a.kind === 'corner' && Math.abs(a.pos[0] + 2.5) < 0.6 && Math.abs(a.pos[2] + 3) < 0.6),
+    JSON.stringify(auto.filter((a) => a.kind === 'corner').map((a) => a.pos)));
+  check('it finds the bed as something to pop up over',
+    auto.some((a) => a.kind === 'surface' && Math.abs(a.pos[1] - 0.55) < 0.2),
+    JSON.stringify(auto.filter((a) => a.kind === 'surface').map((a) => a.pos)));
+  check('the start button unlocks without a single tap',
+    !(await page.isDisabled('#btn-scan-done')));
+
+  // A tap must still work when the hit test blinks out, as it does on iOS
+  // over exactly the corners worth marking.
+  const sticky = await page.evaluate(() => {
+    const { scan, cover } = window.WabbitSeason;
+    const T = window.__THREE;
+    const before = cover.count;
+    scan.backend.lastHit = null;
+    scan.backend.stickyHit = {
+      position: new T.Vector3(1, 0.5, -2), normal: new T.Vector3(0, 1, 0), real: true,
+    };
+    scan.backend.stickyHitAt = performance.now();
+    scan.mark();
+    return { added: cover.count > before, manual: cover.spots.some((s) => !s.auto) };
+  });
+  check('a tap still lands when the live hit test has dropped out',
+    sticky.added && sticky.manual, JSON.stringify(sticky));
 
   console.log('\n• hunt');
   await page.click('#btn-scan-done');

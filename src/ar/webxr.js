@@ -17,6 +17,8 @@ export class WebXRBackend {
     this.frameCallback = null;
     this.onEnd = null;
     this.lastHit = null;
+    this.stickyHit = null;
+    this.stickyHitAt = 0;
     this.hasHitTest = false;
     this.refSpace = null;
     this._clock = new THREE.Clock();
@@ -79,6 +81,19 @@ export class WebXRBackend {
   _tick(time, frame) {
     const dt = Math.min(this._clock.getDelta(), 0.1);
     this.lastHit = frame ? this._readHit(frame) : null;
+    /*
+     * Hold on to the most recent real hit.
+     *
+     * Standalone iOS WebXR browsers run their hit test against the geometry of
+     * already-detected ARKit planes only, so aiming at a corner, a doorframe,
+     * or anywhere a plane has not finished growing returns nothing at all --
+     * and a tap in that instant would otherwise be thrown away with a "point
+     * at a surface first" that the player had, in fact, just done.
+     */
+    if (this.lastHit) {
+      this.stickyHit = this.lastHit;
+      this.stickyHitAt = performance.now();
+    }
     this.frameCallback?.(dt, { frame, hit: this.lastHit, refSpace: this.refSpace });
     this.world.renderer.render(this.world.scene, this.world.camera);
   }

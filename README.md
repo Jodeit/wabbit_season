@@ -33,7 +33,13 @@ easiest way to get it onto a real phone:
 1. **Scan.** Sweep the phone slowly across whatever you can see. About a
    quarter turn fills the bar — you do not need to stand up or spin around.
    The bar measures the sweep and nothing else; marking spots is the next step.
-2. **Mark cover.** Pick how he should use the spot, then tap the reticle on it:
+2. **It finds the hiding spots itself.** As the room comes in, the scan is
+   clustered into flat pieces and read for places worth hiding: horizontal
+   surfaces at furniture height (the end of a bed, a counter), the corners
+   where two walls meet, and the edges where a wall simply stops. Those are
+   marked for you — the start button usually unlocks without a single tap.
+
+   You can still tap to add your own, and pick how he should use it:
 
    | Kind | For | What he does |
    |---|---|---|
@@ -45,6 +51,11 @@ easiest way to get it onto a real phone:
    "pop up from behind a waist-high surface" on its own leaves a lot of rooms —
    bedrooms especially — with nowhere for him to hide. Corners and doors are
    what make it playable from a bed or an armchair.
+
+   **Doors are the one thing detection will not guess at.** ARKit reports a
+   door as part of the wall plane it sits in, and nothing in hit-test data
+   separates the two, so a door stays a deliberate tap rather than a confident
+   mistake.
 3. **Hunt.** He appears at your real furniture, preferring spots you are
    *not* currently looking at.
 4. **Aim.** Hold anywhere to shoulder the gun and look down the rib between the
@@ -148,6 +159,7 @@ src/
     effects.js         particles, screen shake, signs, decoys
     reticle.js         placement reticle
     scanmesh.js        scan readout: real mesh/planes, or the assumed surface
+    detect.js          finds corners, wall edges and furniture in the scan
   audio/sfx.js         procedural sound board
   ui/screens.js        screen switching and HUD banners
 ```
@@ -165,6 +177,13 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **Finding the hiding spots is the game's job, not the player's.** Asking
+  someone to aim at each piece of furniture and tap is worse than it sounds on
+  iOS, where the hit test only reports surfaces inside a *finished* ARKit
+  plane — so it blinks out over exactly the corners and doorframes most worth
+  marking, and the tap is rejected as though the player had aimed at nothing.
+  Spots are detected from the accumulated scan instead, and a tap now falls
+  back to the last good hit from the previous couple of seconds.
 - **The sweep meter measures the sweep.** It saturates at about 90°, so a
   seated player can finish it. Two earlier versions got this wrong in the same
   way: one demanded ~200°, and one was 70% weighted on marked spots, so it

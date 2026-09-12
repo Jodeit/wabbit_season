@@ -4,6 +4,7 @@ import { sfx } from '../audio/sfx.js';
 import { toast } from '../ui/screens.js';
 import { KINDS } from './cover.js';
 import { ScanMesh } from './scanmesh.js';
+import { detectSpots } from './detect.js';
 
 const MIN_SPOTS = 2;
 const MAX_SPOTS = 6;
@@ -19,6 +20,8 @@ const YAW_BINS = 16;
  * even though the start button was already unlocked.
  */
 const SWEEP_BINS = 4;
+/** How often to re-run automatic hiding-spot detection, in seconds. */
+const DETECT_EVERY = 0.6;
 
 /**
  * The room-scan phase.
@@ -41,6 +44,7 @@ export class ScanPhase {
 
     this.bins = new Set();
     this.lastSampleAt = 0;
+    this.lastDetectAt = -Infinity;
     this.time = 0;
 
     this.els = {
@@ -99,6 +103,11 @@ export class ScanPhase {
 
     this.scanMesh.setAssumedFloor(
       this.cover.floorY, this.world.camera.getWorldPosition(new THREE.Vector3()));
+
+    if (this.time - this.lastDetectAt > DETECT_EVERY) {
+      this.lastDetectAt = this.time;
+      this._autoDetect();
+    }
 
     if (info.hit) {
       this.cover.noteSurface(info.hit.position);
@@ -160,24 +169,65 @@ export class ScanPhase {
       this.els.done.disabled = true;
       // Reads as an instruction rather than a dead button, since this is the
       // step people were getting stuck on.
-      this.els.done.textContent = `Tap to mark · ${this.cover.count} of ${MIN_SPOTS}`;
+      this.els.done.textContent =
+        `Looking for spots · ${this.cover.count} of ${MIN_SPOTS}`;
     } else {
       this.els.done.disabled = false;
       this.els.done.textContent = `Stawt Hunting (${this.cover.count} spots)`;
     }
 
     // The big unmissable prompt, until they have marked their first spot.
-    this.els.tapHint.hidden = !(this.cover.count === 0 && this.sweepProgress > 0.3);
+    // Only nag about tapping when sweeping has not turned anything up, since
+    // finding the spots is the game's job first and the player's second.
+    this.els.tapHint.hidden = !(this.cover.count === 0 && this.sweepProgress >= 1);
 
+    const auto = this.cover.spots.filter((s) => s.auto).length;
     if (this.cover.count >= MAX_SPOTS) {
       this.els.sub.textContent = 'That is plenty of places to hide. Let\'s go.';
+    } else if (auto > 0) {
+      this.els.sub.textContent = this.cover.count >= MIN_SPOTS
+        ? 'Found some hiding spots — keep sweeping, or start the hunt.'
+        : 'Found one — keep sweeping for more.';
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
     } else if (this.sweepProgress >= 1) {
-      this.els.sub.textContent = 'Scan done — now tap the woom to mark a hiding spot.';
+      this.els.sub.textContent = 'Looking for hiding spots — keep sweeping the woom.';
     } else {
       this.els.sub.textContent = 'Sweep slowly across whatever you can see.';
     }
+  }
+
+  /**
+   * Look for hiding places in what has been scanned, and keep the marked set
+   * in sync with them.
+   *
+   * Automatic spots are replaced wholesale each pass, because the detection
+   * improves as more of the room arrives; anything the player marked by hand
+   * is left alone, since that was a deliberate choice and should not be
+   * second-guessed by a heuristic.
+   */
+  _autoDetect() {
+    if (!this.scanMesh.sensed || !this.scanMesh.samples.length) return;
+
+    const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
+    const detected = detectSpots(this.scanMesh.samples, this.cover.floorY, camPos);
+    if (!detected.length) return;
+
+    const manual = this.cover.spots.filter((s) => !s.auto).length;
+    const room = Math.max(0, MAX_SPOTS - manual);
+    const wanted = detected.slice(0, room);
+
+    // Nothing to do if the detection has not actually changed anything.
+    const auto = this.cover.spots.filter((s) => s.auto);
+    const same = auto.length === wanted.length && auto.every((s, i) =>
+      s.position.distanceTo(wanted[i].position) < 0.2 && s.kind === wanted[i].kind);
+    if (same) return;
+
+    this.cover.removeAuto();
+    for (const spot of wanted) {
+      this.cover.add(spot.position, spot.normal, spot.kind, true);
+    }
+    this._renderMarks();
   }
 
   /** Choose what the next tap marks. */
@@ -193,7 +243,14 @@ export class ScanPhase {
   /** Player tapped the screen (or squeezed the trigger) to mark cover. */
   mark() {
     if (!this.active) return;
-    const hit = this.backend.lastHit;
+    // A live hit is best, but a recent one is far better than refusing a tap
+    // the player was right to make: on iOS the hit test only reports surfaces
+    // inside a finished ARKit plane, so it blinks out over exactly the corners
+    // and doorframes worth marking.
+    const fresh = this.backend.lastHit;
+    const sticky = this.backend.stickyHit;
+    const stickyAge = performance.now() - (this.backend.stickyHitAt ?? 0);
+    const hit = fresh ?? (stickyAge < 2000 ? sticky : null);
     if (!hit) {
       toast('Point at a surface first — floor, counter, couch.');
       return;
@@ -208,7 +265,9 @@ export class ScanPhase {
   }
 
   undo() {
-    const removed = this.cover.removeLast();
+    // Only ever takes back one of the player's own marks; the detected ones
+    // come straight back on the next detection pass anyway.
+    const removed = this.cover.removeLastManual();
     if (removed) {
       this._renderMarks();
       toast('Unmarked.', 1200);
@@ -219,8 +278,8 @@ export class ScanPhase {
     this.els.list.innerHTML = '';
     for (const spot of this.cover.spots) {
       const pill = document.createElement('span');
-      pill.className = 'mark-pill';
-      pill.textContent = spot.label;
+      pill.className = spot.auto ? 'mark-pill auto' : 'mark-pill';
+      pill.textContent = spot.auto ? `◆ ${spot.label}` : spot.label;
       this.els.list.appendChild(pill);
     }
     this.els.undo.style.visibility = this.cover.count ? 'visible' : 'hidden';

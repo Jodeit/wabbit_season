@@ -292,6 +292,7 @@ h2 { margin: 0 0 10px; font-size: 26px; color: var(--burnt); -webkit-text-stroke
 }
 
 .marks { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-bottom: 7px; }
+.mark-pill.auto { background: rgba(58, 127, 143, .88); }
 .mark-pill {
   font-size: 12px;
   font-weight: 800;

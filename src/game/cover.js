@@ -57,11 +57,13 @@ export function labelForSpot(kind, y, floorY = 0) {
 
 /** A single marked hiding place. */
 export class CoverSpot {
-  constructor(position, normal, label, kind = 'surface') {
+  constructor(position, normal, label, kind = 'surface', auto = false) {
     this.position = position.clone();
     this.normal = normal.clone().normalize();
     this.label = label;
     this.kind = kind;
+    /** True when the game found this itself, rather than the player tapping. */
+    this.auto = auto;
     // Which way he slides out from an edge. Picked once and kept, so a given
     // corner always behaves the same way and the player can learn it.
     this.sideSign = Math.random() < 0.5 ? -1 : 1;
@@ -132,12 +134,34 @@ export class CoverSet {
     if (point.y < this.floorY) this.floorY = point.y;
   }
 
-  add(position, normal, kind = 'surface') {
+  add(position, normal, kind = 'surface', auto = false) {
     const spot = new CoverSpot(
-      position, normal, labelForSpot(kind, position.y, this.floorY), kind);
+      position, normal, labelForSpot(kind, position.y, this.floorY), kind, auto);
     this.spots.push(spot);
     this.scene.add(spot.marker);
     return spot;
+  }
+
+  /** Drop every automatically detected spot, keeping the player's own. */
+  removeAuto() {
+    for (let i = this.spots.length - 1; i >= 0; i--) {
+      if (!this.spots[i].auto) continue;
+      this.scene.remove(this.spots[i].marker);
+      this.spots[i].dispose();
+      this.spots.splice(i, 1);
+    }
+  }
+
+  /** Remove the most recent spot the player marked by hand. */
+  removeLastManual() {
+    for (let i = this.spots.length - 1; i >= 0; i--) {
+      if (this.spots[i].auto) continue;
+      const [spot] = this.spots.splice(i, 1);
+      this.scene.remove(spot.marker);
+      spot.dispose();
+      return spot;
+    }
+    return null;
   }
 
   removeLast() {
