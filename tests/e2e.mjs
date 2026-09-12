@@ -1,0 +1,205 @@
+/**
+ * End-to-end smoke test for Wabbit Season.
+ *
+ * Drives the whole game in headless Chromium with a fake camera: capability
+ * probe -> room scan -> hunt -> results, plus a pass that forces every gag in
+ * the table to run so a typo in one of them cannot ship unnoticed.
+ *
+ *   npm test          (starts its own static server)
+ *   BASE=http://host:port node tests/e2e.mjs
+ */
+import { chromium } from 'playwright';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const TYPES = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+  '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
+};
+
+const failures = [];
+const check = (name, ok, detail = '') => {
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
+  if (!ok) failures.push(name);
+};
+
+async function startServer() {
+  const server = createServer(async (req, res) => {
+    try {
+      const rel = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^(\.\.[/\\])+/, '');
+      const file = join(ROOT, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+      const body = await readFile(file);
+      res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+      res.end(body);
+    } catch {
+      res.writeHead(404).end('not found');
+    }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { server, base: `http://127.0.0.1:${server.address().port}` };
+}
+
+const own = process.env.BASE ? null : await startServer();
+const BASE = process.env.BASE ?? own.base;
+
+const errors = [];
+const browser = await chromium.launch({
+  args: [
+    '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream',
+    '--autoplay-policy=no-user-gesture-required',
+    '--enable-unsafe-swiftshader',
+    '--use-gl=swiftshader',
+  ],
+});
+const ctx = await browser.newContext({
+  viewport: { width: 390, height: 844 }, permissions: ['camera'], hasTouch: true, isMobile: true,
+});
+const page = await ctx.newPage();
+page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+
+try {
+  console.log('\n• boot');
+  await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+  check('three.js and game modules load', await page.evaluate(() => !!window.WabbitSeason));
+  check('title screen is shown', await page.isVisible('#screen-title'));
+  check('capability probe reports a mode',
+    /camera mode|Full AR ready/.test(await page.textContent('#support-line')),
+    (await page.textContent('#support-line')).slice(0, 48));
+
+  console.log('\n• session start');
+  await page.click('#btn-start');
+  await page.waitForTimeout(1200);
+  check('scan screen is shown', await page.isVisible('#screen-scan'));
+  check('camera passthrough is live',
+    await page.evaluate(() => document.querySelector('#passthrough').classList.contains('live')));
+  check('other screens stay hidden',
+    await page.evaluate(() => getComputedStyle(document.querySelector('#screen-title')).display === 'none'));
+
+  console.log('\n• surface estimation');
+  const heights = await page.evaluate(() => {
+    const { world } = window.WabbitSeason;
+    const out = {};
+    for (const deg of [-60, -12]) {
+      world.camera.rotation.set((deg * Math.PI) / 180, 0, 0, 'YXZ');
+      world.camera.updateMatrixWorld(true);
+      out[deg] = +window.WabbitSeason.scanBackendHit().position.y.toFixed(2);
+    }
+    return out;
+  });
+  check('steep look-down lands on the floor', heights['-60'] < 0.1, `y=${heights['-60']}m`);
+  check('shallow look-down lands at furniture height',
+    heights['-12'] > 0.6 && heights['-12'] < 1.3, `y=${heights['-12']}m`);
+
+  console.log('\n• marking cover');
+  for (let i = 0; i < 12; i++) {
+    await page.evaluate((y) => {
+      const cam = window.WabbitSeason.world.camera;
+      cam.rotation.set(-0.35, y, 0, 'YXZ');
+      cam.updateMatrixWorld(true);
+    }, (i / 12) * Math.PI * 2);
+    await page.waitForTimeout(110);
+    if (i % 4 === 0) {
+      await page.mouse.move(195, 500);
+      await page.mouse.down();
+      await page.waitForTimeout(60);
+      await page.mouse.up();
+      await page.waitForTimeout(120);
+    }
+  }
+  const marked = await page.evaluate(() => window.WabbitSeason.cover.count);
+  check('taps on the canvas mark cover spots', marked >= 2, `${marked} spots`);
+  check('spots are given furniture names',
+    await page.evaluate(() => window.WabbitSeason.cover.spots.every((s) => !!s.label)));
+  check('sweeping fills the scan meter',
+    parseInt(await page.evaluate(() => document.querySelector('#scan-meter').style.width), 10) > 50);
+  check('start button unlocks', !(await page.isDisabled('#btn-scan-done')));
+
+  console.log('\n• hunt');
+  await page.click('#btn-scan-done');
+  await page.waitForTimeout(400);
+  check('hunt HUD is shown', await page.isVisible('#screen-hunt'));
+  check('the gun is on screen', await page.evaluate(() => {
+    const { shotgun, world } = window.WabbitSeason;
+    const T = window.__THREE;
+    const wp = shotgun.model.getWorldPosition(new T.Vector3());
+    const f = new T.Frustum().setFromProjectionMatrix(
+      new T.Matrix4().multiplyMatrices(world.camera.projectionMatrix, world.camera.matrixWorldInverse));
+    return shotgun.rig.visible && f.containsPoint(wp);
+  }));
+
+  await page.evaluate(() => { window.WabbitSeason.hunt.stateTimer = 0.0001; });
+  await page.waitForTimeout(600);
+  check('the wabbit shows up', await page.evaluate(() => window.WabbitSeason.hunt.state === 'up'));
+
+  await page.evaluate(() => {
+    const { world, wabbit } = window.WabbitSeason;
+    world.camera.lookAt(wabbit.aimPoint());
+    world.camera.updateMatrixWorld(true);
+  });
+  await page.mouse.move(195, 420);
+  await page.mouse.down();
+  await page.waitForTimeout(300);
+  check('holding shoulders the gun', await page.evaluate(() => window.WabbitSeason.shotgun.ads > 0.8));
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+
+  const afterShot = await page.evaluate(() => {
+    const h = window.WabbitSeason.hunt;
+    return { shots: h.shots, misses: h.misses, score: h.score };
+  });
+  check('releasing fires', afterShot.shots === 1);
+  check('every shot is a miss', afterShot.misses === afterShot.shots);
+  check('a miss scores style points', afterShot.score > 0, `${afterShot.score} pts`);
+
+  console.log('\n• gag table');
+  const gags = await page.evaluate(async () => {
+    const { hunt, wabbit } = window.WabbitSeason;
+    const { ON_TARGET_GAGS, WILD_GAGS, EMPTY_GAGS } = window.__GAGS;
+    const out = [];
+    for (const gag of [...ON_TARGET_GAGS, ...WILD_GAGS, ...EMPTY_GAGS]) {
+      wabbit.setState('taunt');
+      wabbit.setEmerge(1, true);
+      try {
+        hunt._playGag({ ...gag, run: gag.run ?? (() => {}) });
+        out.push({ id: gag.id, ok: true });
+      } catch (e) {
+        out.push({ id: gag.id, ok: false, error: String(e) });
+      }
+      await new Promise((r) => setTimeout(r, 240));
+    }
+    return out;
+  });
+  for (const g of gags) if (!g.ok) console.log(`        ${g.id}: ${g.error}`);
+  check(`all ${gags.length} gags run without throwing`, gags.every((g) => g.ok));
+
+  await page.waitForTimeout(4000);
+  const leaks = await page.evaluate(() => ({
+    particles: window.WabbitSeason.effects.particles.length,
+    temporary: window.WabbitSeason.effects.temporary.length,
+  }));
+  check('effects clean themselves up', leaks.particles === 0 && leaks.temporary === 0, JSON.stringify(leaks));
+
+  console.log('\n• results');
+  await page.click('#btn-quit');
+  await page.waitForTimeout(900);
+  check('results screen is shown', await page.isVisible('#screen-results'));
+  check('final score is reported', +(await page.textContent('#res-score')) > 0);
+  check('a rank is awarded', (await page.textContent('#res-rank')).length > 10);
+  check('camera is released', await page.evaluate(() => !document.querySelector('#passthrough').srcObject));
+
+  console.log('\n• console');
+  for (const e of errors) console.log(`        ${e}`);
+  check('no console or page errors', errors.length === 0, `${errors.length} error(s)`);
+} finally {
+  await browser.close();
+  own?.server.close();
+}
+
+console.log(`\n${failures.length ? `FAILED: ${failures.join(', ')}` : 'All checks passed.'}\n`);
+process.exit(failures.length ? 1 : 0);

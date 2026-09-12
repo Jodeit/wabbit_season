@@ -1,0 +1,131 @@
+# 🐰 Wabbit Season
+
+An augmented-reality cartoon hunting parody that runs in a web browser.
+
+Scan your actual living room with your phone's camera, mark the furniture a
+rabbit could plausibly duck behind, then shoulder a virtual double-barrel and
+try to shoot **Wascal P. Wabbit** as he pops up from behind your kitchen
+island, the end of your bed, or around the corner.
+
+You will miss. Every single time. That is the entire game — you're scored on
+how spectacularly you fail, not on hitting anything.
+
+> *"Be vewy vewy quiet. You're hunting in youw own wiving woom."*
+
+## Playing it
+
+Serve the folder over HTTPS (or `localhost`) and open it on your phone:
+
+```bash
+npm start          # http://localhost:8080
+```
+
+Camera access requires a secure context, so for phone testing either use
+`localhost` via port-forwarding, or host it anywhere with TLS — it is a plain
+static site with no build step, so GitHub Pages, Netlify or `python3 -m
+http.server` behind a tunnel all work as-is.
+
+1. **Scan.** Sweep the phone slowly across the room. The meter fills as you
+   cover more of it — standing still and tapping the same couch won't do.
+2. **Mark cover.** Tap the reticle on a kitchen island, the end of a bed, a
+   couch. Each mark is named by how high it is off the floor.
+3. **Hunt.** He rises from behind your real furniture, preferring spots you are
+   *not* currently looking at.
+4. **Aim.** Hold anywhere to shoulder the gun and look down the rib between the
+   barrels; the brass bead is your sight. Release to fire.
+5. **Miss.** He ducks, catches the buckshot in his teeth, bunts it with a
+   carrot, ties your barrels in a knot, or holds up a sign reading DUCK SEASON.
+
+## Device support
+
+The game has two runtime paths and picks one automatically. The title screen
+tells you which you got.
+
+| | WebXR mode | Camera mode |
+|---|---|---|
+| **Where** | Android Chrome, Quest, other `immersive-ar` browsers | iPhone/iPad Safari, desktop, anything else with a camera |
+| **Passthrough** | The XR compositor | `getUserMedia` video behind a transparent canvas |
+| **Head tracking** | 6DoF, real world-locked content | 3DoF from the gyroscope |
+| **Surfaces** | Real hit-testing against sensed geometry | Estimated from where you're looking |
+
+**On iPhone this runs in camera mode.** Safari still ships no `immersive-ar`
+session, so there is no WebXR AR on iOS at the time of writing regardless of
+what a page asks for. Camera mode gets you the live camera feed, gyro aiming
+and a wabbit in your room, but because there is no depth sensing it has to
+*guess* where surfaces are: the reticle ray is clamped to about three metres,
+so pointing at a shallow downward angle lands on furniture rather than sailing
+over it onto the floor behind. The reticle turns blue whenever a placement is
+estimated rather than sensed.
+
+## How it works
+
+No build step, no bundler, no framework. `index.html` loads ES modules
+directly, and three.js is vendored in `vendor/` so the whole thing is a
+self-contained static site that runs with the network unplugged. To switch to a
+CDN instead, repoint the single entry in the import map.
+
+There are **no asset files**. The wabbit, the shotgun and the props are built
+from three.js primitives at runtime, and every sound — the blast, the boings,
+the slide whistle, the anvil — is synthesised with the Web Audio API out of
+noise bursts and pitch ramps.
+
+```
+src/
+  main.js              bootstrap, capability probe, phase transitions
+  core/
+    world.js           renderer, scene, lighting
+    util.js            maths and platform helpers
+  ar/
+    webxr.js           immersive-ar session, hit-test source, DOM overlay
+    fallback.js        getUserMedia + DeviceOrientation, estimated surfaces
+  game/
+    scan.js            room-scan phase and sweep progress
+    hunt.js            the hunt state machine and shooting
+    cover.js           marked hiding spots, furniture naming, spot selection
+    wabbit.js          the wabbit: geometry, animation, states
+    shotgun.js         first-person view model, hip/shouldered poses
+    gags.js            the miss table and the dialogue
+    effects.js         particles, screen shake, signs, decoys
+    reticle.js         placement reticle
+  audio/sfx.js         procedural sound board
+  ui/screens.js        screen switching and HUD banners
+```
+
+A few decisions worth knowing about:
+
+- **The gun is laid out from the projection, not in metres.** A phone in
+  portrait has a very narrow horizontal field of view, and a hip position
+  measured in metres simply falls off the side of the screen there. The poses
+  are expressed as fractions of the view frustum instead, so they hold up on
+  any aspect ratio and through an orientation change.
+- **The stock is deliberately stubby and the butt plate isn't modelled.** At
+  true length it sits centimetres from the eye and becomes an opaque slab
+  across the bottom of the screen.
+- **Screen shake never moves the camera.** In WebXR the camera pose belongs to
+  the device; yanking it around is both ignored and nauseating. The gun rocks
+  and the DOM overlay jolts instead.
+- **The miss is decided before the pellets leave the barrel.** Whether the shot
+  was lined up only selects *which* pool of gags it comes from: genuine
+  on-target shots get the expensive cartoon-physics saves and score the most,
+  wild ones get gags at the player's expense.
+
+## Testing
+
+```bash
+npm install     # playwright, for the test only
+npx playwright install chromium
+npm test
+```
+
+`tests/e2e.mjs` drives the whole game in headless Chromium with a fake camera —
+capability probe, room scan, hunt, results — and forces every gag in the table
+to run so a typo in one of them can't ship unnoticed. It also asserts the
+things that are easy to break by accident: that the gun is inside the view
+frustum, that surface estimation puts furniture at furniture height, that
+effects clean up after themselves, and that the camera is released at the end.
+
+## About the parody
+
+Wascal P. Wabbit and his exasperated hunter are an affectionate send-up of a
+very old cartoon rivalry. The characters, dialogue, artwork and sounds here are
+all original to this project — no studio assets are used, referenced or bundled.

@@ -1,0 +1,14 @@
+{
+  "name": "wabbit-season",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An augmented-reality cartoon hunting parody for the web. Scan your room, shoulder a shotgun, miss a wascally wabbit.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes http-server -p 8080 -c-1 .",
+    "test": "node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

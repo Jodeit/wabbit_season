@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#1b1206" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="description" content="Wabbit Season — an augmented reality cartoon hunting parody. Scan your room, shoulder your shotgun, and miss a wascally wabbit in your own living room." />
+<title>Wabbit Season</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%B0%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./styles.css" />
+<!--
+  three.js is vendored in ./vendor so the game is a self-contained static site:
+  no build step, no CDN, and it still runs with the network unplugged.
+  To use a CDN instead, point this one entry at it.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <video id="passthrough" playsinline muted autoplay></video>
+
+  <!-- DOM overlay root: also used as the WebXR dom-overlay element -->
+  <div id="overlay">
+    <!-- ============ TITLE ============ -->
+    <section class="screen" id="screen-title" data-screen="title">
+      <div class="card">
+        <h1 class="logo"><span>Wabbit</span><em>Season</em></h1>
+        <p class="tagline">Be vewy vewy quiet. You're hunting in youw own wiving woom.</p>
+        <div class="crest" aria-hidden="true">🥕</div>
+        <p class="blurb">
+          Scan the room with your camera, mark the furniture that wascal could hide behind,
+          then aim down the barrel and take your shot.
+          <strong>You will miss.</strong> That's the whole point.
+        </p>
+        <button class="btn primary" id="btn-start">Stawt the Hunt</button>
+        <button class="btn ghost" id="btn-howto">How to Play</button>
+        <p class="support" id="support-line">Checking your device…</p>
+      </div>
+    </section>
+
+    <!-- ============ HOW TO ============ -->
+    <section class="screen" id="screen-howto" data-screen="howto" hidden>
+      <div class="card">
+        <h2>How to Play</h2>
+        <ol class="howto">
+          <li><b>Scan.</b> Sweep your phone slowly across the room. Floors, counters and beds light up.</li>
+          <li><b>Mark cover.</b> Tap the glowing reticle on a kitchen island, the end of a bed, a couch — anywhere a wabbit could duck behind.</li>
+          <li><b>Hunt.</b> He pops up from behind your real furniture. Hold anywhere to shoulder the gun and aim down the barrel.</li>
+          <li><b>Miss.</b> Release to fire. He will dodge, catch the pellets in his teeth, or bend your barrel into a pretzel.</li>
+          <li><b>Score style.</b> You can't hit him, so you're scored on how spectacularly you fail.</li>
+        </ol>
+        <button class="btn primary" data-goto="title">Got it</button>
+      </div>
+    </section>
+
+    <!-- ============ SCAN ============ -->
+    <section class="screen bare" id="screen-scan" data-screen="scan" hidden>
+      <div class="scan-top">
+        <div class="scan-title">Scanning the woom…</div>
+        <div class="scan-sub" id="scan-sub">Sweep slowly. Look at your floor and furniture.</div>
+        <div class="meter"><i id="scan-meter"></i></div>
+      </div>
+      <div class="scan-bottom">
+        <div class="marks" id="mark-list"></div>
+        <button class="btn primary" id="btn-scan-done" disabled>Mark 1 more hiding spot</button>
+        <button class="btn ghost small" id="btn-scan-undo">Undo last mark</button>
+      </div>
+    </section>
+
+    <!-- ============ HUNT HUD ============ -->
+    <section class="screen bare" id="screen-hunt" data-screen="hunt" hidden>
+      <div class="hud-top">
+        <div class="hud-chip"><span class="k">Style</span><b id="hud-score">0</b></div>
+        <div class="hud-chip"><span class="k">Shells</span><b id="hud-shells">••</b></div>
+        <div class="hud-chip"><span class="k">Misses</span><b id="hud-misses">0</b></div>
+      </div>
+      <div class="taunt" id="taunt" hidden></div>
+      <div class="gag" id="gag" hidden></div>
+      <div class="hud-bottom">
+        <div class="hint" id="hunt-hint">Hold to shoulder the gun · release to fire</div>
+      </div>
+      <button class="btn ghost tiny corner" id="btn-quit">End Hunt</button>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section class="screen" id="screen-results" data-screen="results" hidden>
+      <div class="card">
+        <h2 id="res-title">The Wabbit Wins</h2>
+        <div class="score-big" id="res-score">0</div>
+        <p class="score-label">style points</p>
+        <ul class="res-lines" id="res-lines"></ul>
+        <p class="rank" id="res-rank"></p>
+        <button class="btn primary" id="btn-again">Hunt Again</button>
+        <button class="btn ghost" data-goto="title">Back to Title</button>
+      </div>
+    </section>
+
+    <!-- ============ FATAL / UNSUPPORTED ============ -->
+    <section class="screen" id="screen-error" data-screen="error" hidden>
+      <div class="card">
+        <h2 id="err-title">Twouble</h2>
+        <p id="err-body"></p>
+        <button class="btn primary" data-goto="title">Back</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" hidden></div>
+    <div id="flash" class="flash" aria-hidden="true"></div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
