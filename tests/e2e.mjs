@@ -141,10 +141,33 @@ try {
     visible: window.WabbitSeason.scanMesh.group.visible,
   }));
   console.log(`        "${readout.text}"`);
-  check('sweeping accumulates surface points', readout.points > 5, `${readout.points} points`);
-  check('the point cloud is drawn', readout.visible);
+  check('the scan overlay is drawn', readout.visible);
+  // Estimated surfaces are guesses, not measurements. Plotting them as points
+  // would scatter dots through mid-air and read as a scan of nothing.
+  check('no points are plotted without a depth sensor', readout.points === 0,
+    `${readout.points} points`);
+  check('the assumed floor is drawn instead',
+    await page.evaluate(() => window.WabbitSeason.scanMesh.assumedFloor.visible));
   check('estimated surfaces are reported as estimated, not sensed',
     /estimated/.test(readout.text) && readout.cls.includes('estimated'), readout.cls);
+
+  // A device that really senses surfaces does get a point cloud.
+  const sensedCloud = await page.evaluate(() => {
+    const { scanMesh } = window.WabbitSeason;
+    const T = window.__THREE;
+    for (let i = 0; i < 12; i++) {
+      scanMesh.addPoint(new T.Vector3(i * 0.4, 0.6, -2), true);
+    }
+    return {
+      points: scanMesh.pointCount,
+      text: scanMesh.describe(),
+      floor: scanMesh.assumedFloor.visible,
+    };
+  });
+  console.log(`        "${sensedCloud.text}"`);
+  check('sensed surfaces do build a point cloud', sensedCloud.points === 12,
+    `${sensedCloud.points} points`);
+  check('sensed surfaces are reported as sensed', /sensed/.test(sensedCloud.text));
 
   // The real-geometry path cannot run in headless Chromium (no XR runtime), so
   // feed it a synthetic XRFrame shaped like the spec to prove it wires up.
@@ -164,6 +187,12 @@ try {
     return { count: scanMesh.planeCount, source: scanMesh.source, desc: scanMesh.describe() };
   });
   console.log(`        "${planes.desc}"`);
+  check('the assumed floor is dropped once real geometry arrives',
+    !(await page.evaluate(() => {
+      const { scanMesh } = window.WabbitSeason;
+      scanMesh.setAssumedFloor(0, { x: 0, z: 0 });
+      return scanMesh.assumedFloor.visible;
+    })));
   check('detected planes are drawn as real geometry',
     planes.count === 2 && planes.source === 'planes', JSON.stringify(planes));
 

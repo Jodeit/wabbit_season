@@ -73,19 +73,35 @@ that is:
 |---|---|---|
 | `mesh` — scene reconstruction (`XRMesh`) | green wireframe | Quest 3 and similar |
 | `planes` — detected planes (`XRPlane`) | green boundary polygons | Android Chrome |
-| `points` — sampled surface points | blue dots + assumed floor grid | iOS, and hit-test-only runtimes |
+| `points` — sensed surface points | green dots | hit-test-only runtimes |
+| *(nothing sensed)* | assumed floor grid only | iOS Safari |
 
-**No LiDAR.** iPhones and iPads have a depth sensor, but Safari does not
-expose it — there is no web API for ARKit's scene reconstruction, depth map or
-LiDAR, and no WebXR session to hang one off. So on iOS nothing is measured.
-The blue points are the surface the game is *assuming*: the reticle ray
-clamped to about three metres, fanned across the viewport as you pan, plus a
-grid drawn on the floor plane it assumes at `y = 0`.
+**No LiDAR in Safari.** iPhones and iPads have a depth sensor, but Safari does
+not expose it — there is no web API for ARKit's scene reconstruction, depth
+map or LiDAR, and no WebXR session to hang one off. So in Safari nothing is
+measured, and **no points are plotted at all**: an estimate is not a
+measurement, and a fan of dots at a guessed distance scatters through mid-air
+and across the ceiling, looking like a scan of a room while corresponding to
+nothing in it. What is drawn instead is the grid on the floor plane the game
+assumes, which is the actual model, labelled "No depth sensor — surfaces are
+estimated".
 
-That is why the estimated case is drawn in a different colour, labelled
-"estimated — no depth sensor on this device", and never rendered as a solid
-mesh. A convincing mesh there would be a prop: it would imply the game had
-measured a room it cannot see.
+Points only ever appear for surfaces a device really sensed.
+
+### Getting real AR on an iPhone
+
+The [iQ3Connect XR Viewer](https://github.com/iq3connectdev/iQ3ConnectXRViewer)
+(a maintained fork of Mozilla's WebXR Viewer) is an iOS browser that exposes
+ARKit through a real `immersive-ar` session — `local-floor`, `hit-test` and
+`dom-overlay` are all supported. Opened in it, this game takes its WebXR path
+and gets genuinely sensed surfaces, green points and all.
+
+One thing it requires: that app renders the camera feed **natively behind a
+transparent `WKWebView`** (`webView.isOpaque = false`) rather than compositing
+it the way Chrome does. Any opaque `background` on `html`/`body` is therefore a
+sheet of paint over the camera, and the passthrough never appears. This page
+keeps its root elements transparent and lets the menu screens paint their own
+backdrops.
 
 **On iPhone this runs in camera mode.** Safari still ships no `immersive-ar`
 session, so there is no WebXR AR on iOS at the time of writing regardless of
@@ -150,8 +166,13 @@ A few decisions worth knowing about:
   nineties, which reads as a gate that never opens even when nothing is
   actually blocked.
 - **The scan visualisation never draws geometry the device did not sense.**
-  Where there is real data it is rendered as-is; where there is not, the
-  assumption is drawn in a different colour and named as an assumption.
+  Real data is rendered as-is. Where there is none, the only thing drawn is
+  the assumption itself — the floor plane — named as an assumption. Estimated
+  points are not plotted at all.
+- **Nothing on the page may be opaque.** The camera arrives either behind the
+  canvas (`<video>`), through the XR compositor, or behind the whole webview
+  (iOS WebXR browsers). Only the last one breaks loudly, and only on a device
+  that is awkward to test.
 - **The miss is decided before the pellets leave the barrel.** Whether the shot
   was lined up only selects *which* pool of gags it comes from: genuine
   on-target shots get the expensive cartoon-physics saves and score the most,

@@ -16,7 +16,19 @@ html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #110d07;
+  /*
+   * The page must stay transparent all the way down.
+   *
+   * Standalone WebXR browsers for iOS (the iQ3Connect XR Viewer, and Mozilla's
+   * WebXR Viewer it forks) render the ARKit camera feed *natively behind* a
+   * transparent WKWebView -- `webView.isOpaque = false` with a clear
+   * background -- rather than compositing it like Chrome does. An opaque body
+   * colour there is a sheet of paint over the camera, and the passthrough
+   * simply never appears.
+   *
+   * The menu screens paint their own backdrop, so nothing needs one here.
+   */
+  background: transparent;
   color: var(--parchment);
   font-family: "Trebuchet MS", "Gill Sans", "Segoe UI", system-ui, sans-serif;
   overscroll-behavior: none;

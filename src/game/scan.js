@@ -97,12 +97,6 @@ export class ScanPhase {
     // Real room geometry, where the runtime actually has some.
     this.scanMesh.syncXRGeometry(info.frame, info.refSpace);
 
-    // Where there is none, paint the surface we are assuming. Done every
-    // frame rather than at the meter's sample rate, so the cloud builds at the
-    // speed the player is actually moving the phone.
-    for (const p of this.backend.probeSpread?.(3) ?? []) {
-      this.scanMesh.addPoint(p.position, p.real);
-    }
     this.scanMesh.setAssumedFloor(
       this.cover.floorY, this.world.camera.getWorldPosition(new THREE.Vector3()));
 
@@ -113,7 +107,11 @@ export class ScanPhase {
       if (this.time - this.lastSampleAt > 0.12) {
         this.lastSampleAt = this.time;
         this.samples++;
-        this.scanMesh.addPoint(info.hit.position, info.hit.real);
+        // Only sensed surfaces go into the cloud. An estimated point is not a
+        // measurement of anything -- plotting a fan of them at a fixed guessed
+        // distance scatters dots through mid-air and across the ceiling, which
+        // looks like a scan while corresponding to nothing in the room.
+        if (info.hit.real) this.scanMesh.addPoint(info.hit.position, true);
         const dir = this.world.camera.getWorldDirection(new THREE.Vector3());
         const yaw = Math.atan2(dir.x, dir.z);
         const bin = Math.floor(((yaw + Math.PI) / (Math.PI * 2)) * YAW_BINS) % YAW_BINS;

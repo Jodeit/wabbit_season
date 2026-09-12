@@ -147,33 +147,6 @@ export class FallbackBackend {
     return this._estimateAlong(dir);
   }
 
-  /**
-   * Sample a spread of directions across the view, not just the centre ray.
-   *
-   * One ray per frame paints a single thread of points and looks nothing like
-   * a scan. Fanning out across the viewport sweeps a band of the assumed
-   * surface as the player pans, which is both a better progress signal and an
-   * honest picture of the guess being made -- it is exactly the surface the
-   * reticle would snap to anywhere in frame.
-   */
-  probeSpread(steps = 3) {
-    const camera = this.world.camera;
-    const out = [];
-    const half = Math.tan((camera.fov * Math.PI) / 360);
-    for (let iy = 0; iy < steps; iy++) {
-      for (let ix = 0; ix < steps; ix++) {
-        const nx = steps === 1 ? 0 : (ix / (steps - 1)) * 2 - 1;
-        const ny = steps === 1 ? 0 : (iy / (steps - 1)) * 2 - 1;
-        const dir = new THREE.Vector3(nx * half * camera.aspect, ny * half, -1)
-          .normalize()
-          .applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-        const hit = this._estimateAlong(dir);
-        if (hit) out.push(hit);
-      }
-    }
-    return out;
-  }
-
   _estimateAlong(dir) {
     const camera = this.world.camera;
     const origin = camera.getWorldPosition(new THREE.Vector3());

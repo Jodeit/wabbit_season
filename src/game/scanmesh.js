@@ -183,9 +183,8 @@ export class ScanMesh {
     const plural = (word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (this.source === 'mesh') return `${plural('surface')} meshed · ${this.count} points`;
     if (this.source === 'planes') return `${plural('plane')} detected · ${this.count} points`;
-    return this.sensed
-      ? `${this.count} surface points sensed`
-      : `${this.count} points estimated — no depth sensor on this device`;
+    if (this.sensed) return `${this.count} surface points sensed`;
+    return 'No depth sensor — surfaces are estimated';
   }
 
   /**
