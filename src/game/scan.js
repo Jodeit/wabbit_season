@@ -22,6 +22,8 @@ const YAW_BINS = 16;
 const SWEEP_BINS = 4;
 /** How often to re-run automatic hiding-spot detection, in seconds. */
 const DETECT_EVERY = 0.6;
+/** Seconds to hold a finished scan before starting itself, with no button. */
+const AUTO_START_DELAY = 3;
 
 /**
  * The room-scan phase.
@@ -131,6 +133,24 @@ export class ScanPhase {
     }
 
     this._updateMeter();
+
+    if (this.autoStart) this._tickAutoStart(dt);
+    this.onProgress?.(this);
+  }
+
+  /** Count down and start the hunt, for sessions with no visible buttons. */
+  _tickAutoStart(dt) {
+    const ready = this.sweepProgress >= 1 && this.cover.count >= MIN_SPOTS;
+    if (!ready) {
+      this.autoStartAt = 0;
+      return;
+    }
+    this.autoStartAt += dt;
+    if (this.autoStartAt >= AUTO_START_DELAY) this.finish();
+  }
+
+  get autoStartRemaining() {
+    return Math.max(0, Math.ceil(AUTO_START_DELAY - this.autoStartAt));
   }
 
   /**

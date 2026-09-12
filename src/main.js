@@ -13,8 +13,9 @@ import { Effects } from './game/effects.js';
 import { ScanPhase } from './game/scan.js';
 import { HuntPhase } from './game/hunt.js';
 import { initAudio, sfx } from './audio/sfx.js';
-import { fatal, show, toast } from './ui/screens.js';
+import { fatal, setBanterMirror, show, toast } from './ui/screens.js';
 import * as diagnostics from './ui/diagnostics.js';
+import { WorldUI } from './ui/worldui.js';
 import * as GAGS from './game/gags.js';
 
 /* ------------------------------------------------------------------ */
@@ -28,6 +29,7 @@ const cover = new CoverSet(world.scene);
 const reticle = new Reticle(world.scene);
 const scanMesh = new ScanMesh(world.scene);
 const occluders = new Occluders(world.scene);
+const worldUI = new WorldUI(world.scene, world.camera);
 
 const wabbit = new Wabbit();
 world.scene.add(wabbit.root);
@@ -132,10 +134,26 @@ async function beginHunt() {
     return;
   }
 
+  /*
+   * Headset browsers routinely grant immersive-ar without dom-overlay, and
+   * then none of the DOM chrome is visible inside the session: the room and
+   * the wabbit render, every instruction and button does not. Fall back to
+   * panels drawn in the world, and let the scan finish itself since there is
+   * no button to press.
+   */
+  const domVisible = backend.mode === 'fallback' || backend.hasDomOverlay;
+  worldUI.setEnabled(!domVisible);
+  scan.autoStart = !domVisible;
+  if (!domVisible) {
+    toast('No DOM overlay — using in-world panels.', 4000);
+  }
+
   diagnostics.noteMode(backend.mode, {
     hitTest: backend.hasHitTest ?? false,
     enabledFeatures: [...(backend.session?.enabledFeatures ?? [])].join(',') || 'n/a',
-    domOverlay: backend.session?.domOverlayState?.type ?? 'none',
+    domOverlay: backend.hasDomOverlay ? (backend.session?.domOverlayState?.type ?? 'yes') : 'none',
+    worldUI: worldUI.enabled,
+    gunMount: shotgun.mount,
   });
 
   if (backend.mode === 'webxr') wireXRInput(backend.session);
@@ -204,6 +222,7 @@ function onFrame(dt, info) {
   }
 
   effects.update(dt);
+  worldUI.update();
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,6 +236,7 @@ function pressStart() {
 function pressEnd() {
   if (phase === 'scan') scan.mark();
   else if (phase === 'hunt') hunt.pressEnd();
+  else if (phase === 'results' && worldUI.enabled) huntAgain();
 }
 
 /** Pointer input: used by the fallback backend and by desktop testing. */
@@ -240,6 +260,29 @@ window.addEventListener('pointercancel', () => {
 function wireXRInput(session) {
   session.addEventListener('selectstart', pressStart);
   session.addEventListener('selectend', pressEnd);
+  session.addEventListener('inputsourceschange', () => mountGun(session));
+  mountGun(session);
+}
+
+/**
+ * Give the gun to a tracked hand if there is one.
+ *
+ * On a phone the device is the aim and the gun belongs on screen. In a headset
+ * the player has a controller, and a gun welded to their forehead is both
+ * strange to look at and impossible to aim with.
+ */
+function mountGun(session) {
+  const held = [...(session.inputSources ?? [])]
+    .findIndex((src) => src.targetRayMode === 'tracked-pointer');
+  if (held < 0) {
+    if (shotgun.mount !== 'camera') shotgun.attachTo(world.camera, 'camera');
+    return;
+  }
+  if (shotgun.mount === 'controller') return;
+  const controller = world.renderer.xr.getController(held);
+  // The controller object is only posed while it is in the scene graph.
+  if (!controller.parent) world.scene.add(controller);
+  shotgun.attachTo(controller, 'controller');
 }
 
 // Taps on HUD buttons must not also pull the trigger inside an XR session.
@@ -251,6 +294,37 @@ overlay.addEventListener('beforexrselect', (e) => {
 /* phase transitions                                                   */
 /* ------------------------------------------------------------------ */
 
+setBanterMirror((kind, text) => {
+  if (!worldUI.enabled) return;
+  // Taunts belong to the wabbit, so they appear above him; the gag verdict is
+  // about the shot, so it goes on the main panel.
+  if (kind === 'taunt' && wabbit.root.visible) {
+    worldUI.say(text, wabbit.aimPoint());
+  } else {
+    worldUI.show('Wabbit Season', text);
+    setTimeout(() => { if (phase === 'hunt') worldUI.hideMain(); }, 1800);
+  }
+});
+
+hunt.onHud = (score, shells, misses, reloading) => {
+  worldUI.hud(score, reloading ? '…' : '•'.repeat(shells).padEnd(2, '·'), misses);
+};
+
+scan.onProgress = (s) => {
+  if (!worldUI.enabled) return;
+  const pct = Math.round(s.sweepProgress * 100);
+  if (s.autoStartAt > 0) {
+    worldUI.show('Weady', `${s.cover.count} hiding spots found.`,
+      `Starting in ${s.autoStartRemaining}…`);
+  } else if (s.cover.count > 0) {
+    worldUI.show('Scanning', `${pct}% swept · ${s.cover.count} hiding spots found.`,
+      'Keep looking around the woom');
+  } else {
+    worldUI.show('Scanning the woom', `${pct}% swept · ${s.scanMesh.describe()}`,
+      'Look around slowly');
+  }
+};
+
 scan.onComplete = () => startHunt();
 
 function startHunt() {
@@ -260,6 +334,7 @@ function startHunt() {
   // Real surfaces hide him during the hunt; during the scan they would hide
   // the scan overlay the player is trying to read.
   occluders.setVisible(true);
+  worldUI.hideMain();
   show('hunt');
   hunt.start();
 }
@@ -284,6 +359,11 @@ async function finishHunt(summary) {
    * screen is DOM, and dom-overlay renders DOM inside the session perfectly
    * well, so it can simply appear over the live camera.
    */
+  worldUI.hideHud();
+  if (worldUI.enabled) {
+    worldUI.show('The Wabbit Wins', `${summary.score} style points. ${summary.rank}`,
+      'Pull the trigger to hunt again');
+  }
   renderResults(summary);
   show('results');
   sfx.fanfare();
@@ -376,7 +456,7 @@ show('title');
 window.__THREE = THREE;
 window.__GAGS = GAGS;
 window.WabbitSeason = {
-  world, cover, wabbit, shotgun, hunt, scan, effects, scanMesh, occluders,
+  world, cover, wabbit, shotgun, hunt, scan, effects, scanMesh, occluders, worldUI,
   get backend() { return backend; },
   get phase() { return phase; },
   scanBackendHit: () => backend?._estimateHit?.() ?? backend?.lastHit ?? null,

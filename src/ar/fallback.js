@@ -25,6 +25,7 @@ export class FallbackBackend {
     this.frameCallback = null;
     this.onEnd = null;
     this.hasHitTest = false;
+    this.hasDomOverlay = true;
     this.eyeHeight = DEFAULT_EYE_HEIGHT;
     this.lastHit = null;
 

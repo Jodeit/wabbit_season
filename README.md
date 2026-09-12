@@ -71,6 +71,7 @@ tells you which you got.
 | | WebXR mode | Camera mode |
 |---|---|---|
 | **Where** | Android Chrome, Quest, other `immersive-ar` browsers | iPhone/iPad Safari, desktop, anything else with a camera |
+| **HUD** | DOM overlay, or in-world panels when that is not granted | DOM overlay |
 | **Passthrough** | The XR compositor | `getUserMedia` video behind a transparent canvas |
 | **Head tracking** | 6DoF, real world-locked content | 3DoF from the gyroscope |
 | **Surfaces** | Real hit-testing against sensed geometry | Estimated from where you're looking |
@@ -202,6 +203,19 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **Requesting `dom-overlay` is not the same as getting it.** It is a
+  handheld-AR convenience, and headset browsers routinely grant `immersive-ar`
+  without it. When it is missing, every button and caption silently disappears
+  while the 3D scene keeps rendering — the game looks like it is working and is
+  impossible to play. The session now checks, and falls back to panels drawn in
+  the world; the scan also starts the hunt itself, since there is no button to
+  press.
+- **In a headset the gun goes in a hand.** On a phone the device is the aim and
+  the gun belongs framed against the screen. A gun welded to the player's
+  forehead is both strange to look at and impossible to aim, so a tracked
+  controller takes it when one exists. Its framing also comes from the live
+  projection matrix rather than `camera.fov`, which WebXR never updates —
+  reading the stale value puts the gun off the side of a headset's view.
 - **Occlusion is the scan mesh itself, never a fitted shape.** Fitting a
   rectangle around each cluster of samples is cheap and wrong: a bounding box
   spans everything between its corners, including the parts of the room nothing

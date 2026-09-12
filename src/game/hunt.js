@@ -29,6 +29,8 @@ export class HuntPhase {
 
     this.active = false;
     this.onComplete = null;
+    /** Optional mirror for runtimes where the DOM HUD is not visible. */
+    this.onHud = null;
 
     this.els = {
       score: $('#hud-score'),
@@ -241,6 +243,7 @@ export class HuntPhase {
   }
 
   _refreshHud() {
+    this.onHud?.(this.score, this.shells, this.misses, this.reloadTimer > 0);
     this.els.score.textContent = String(this.score);
     this.els.misses.textContent = String(this.misses);
     this.els.shells.textContent = this.reloadTimer > 0

@@ -20,6 +20,7 @@ export class WebXRBackend {
     this.stickyHit = null;
     this.stickyHitAt = 0;
     this.hasHitTest = false;
+    this.hasDomOverlay = false;
     this.refSpace = null;
     this._clock = new THREE.Clock();
   }
@@ -57,6 +58,18 @@ export class WebXRBackend {
     await renderer.xr.setSession(session);
 
     this.refSpace = renderer.xr.getReferenceSpace();
+
+    /*
+     * Whether the page's DOM is actually composited into the session.
+     *
+     * `dom-overlay` is a handheld-AR convenience and is not universal: headset
+     * browsers commonly grant `immersive-ar` without it. Requesting it is not
+     * the same as getting it, and when it is missing every button and caption
+     * silently vanishes while the 3D scene keeps rendering -- the game looks
+     * like it works and cannot be played.
+     */
+    this.hasDomOverlay = !!session.domOverlayState
+      || !!session.enabledFeatures?.includes?.('dom-overlay');
 
     try {
       this.viewerSpace = await session.requestReferenceSpace('viewer');

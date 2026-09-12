@@ -43,8 +43,22 @@ function flashBanner(sel, text, ms) {
   el._timer = setTimeout(() => { el.hidden = true; }, ms);
 }
 
-export const showTaunt = (text, ms = 2600) => flashBanner('#taunt', text, ms);
-export const showGag = (text, ms = 2200) => flashBanner('#gag', text, ms);
+/**
+ * Where the DOM is not visible (a headset session without dom-overlay), the
+ * same lines have to reach the player some other way. Anything registered
+ * here receives every caption alongside the DOM banner.
+ */
+let mirror = null;
+export function setBanterMirror(fn) { mirror = fn; }
+
+export const showTaunt = (text, ms = 2600) => {
+  mirror?.('taunt', text, ms);
+  flashBanner('#taunt', text, ms);
+};
+export const showGag = (text, ms = 2200) => {
+  mirror?.('gag', text, ms);
+  flashBanner('#gag', text, ms);
+};
 
 export function fatal(title, body) {
   $('#err-title').textContent = title;

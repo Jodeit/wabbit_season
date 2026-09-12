@@ -546,6 +546,74 @@ try {
   check('it reports the runtime mode', /^mode: /m.test(diag.text));
   check('it reports scan state', /scanPatches: /.test(diag.text));
 
+  console.log('\n• headset fallback (no dom-overlay)');
+  const headset = await page.evaluate(async () => {
+    const { worldUI, scan, hunt, shotgun, world } = window.WabbitSeason;
+    worldUI.setEnabled(true);
+
+    worldUI.show('Scanning', 'body text', 'prompt');
+    const mainShown = worldUI.main.mesh.visible;
+    worldUI.hud(120, '••', 3);
+    const hudShown = worldUI.hudPanel.mesh.visible;
+    worldUI.say('what\'s cookin', new window.__THREE.Vector3(0, 1, -2));
+    const speechShown = worldUI.speech.mesh.visible;
+
+    // With no button to press, a finished scan must start the hunt itself.
+    scan.autoStart = true;
+    scan.autoStartAt = 0;
+    const before = scan.autoStartRemaining;
+    let finished = false;
+    const prior = scan.onComplete;
+    scan.onComplete = () => { finished = true; };
+    scan.active = true;
+    for (let i = 0; i < 5; i++) scan._tickAutoStart(1);
+    scan.onComplete = prior;
+    scan.active = false;
+
+    // A gun welded to the forehead is unusable in a headset.
+    const fake = new window.__THREE.Group();
+    world.scene.add(fake);
+    shotgun.attachTo(fake, 'controller');
+    shotgun.layoutFor(world.camera);
+    const held = { mount: shotgun.mount, parent: shotgun.rig.parent === fake,
+                   hipZ: +shotgun.hipPos.z.toFixed(2) };
+    shotgun.attachTo(world.camera, 'camera');
+    shotgun.layoutFor(world.camera);
+
+    worldUI.setEnabled(false);
+    void hunt;
+    return { mainShown, hudShown, speechShown, before, finished, held };
+  });
+  check('in-world panels render when the DOM cannot',
+    headset.mainShown && headset.hudShown && headset.speechShown, JSON.stringify(headset));
+  check('a finished scan starts itself with no button to press', headset.finished,
+    `countdown started at ${headset.before}s`);
+  check('the gun moves to a tracked hand in a headset',
+    headset.held.mount === 'controller' && headset.held.parent, JSON.stringify(headset.held));
+  check('a held gun is posed to the hand, not framed against the screen',
+    Math.abs(headset.held.hipZ + 0.12) < 0.001, `z=${headset.held.hipZ}`);
+  // Switching mounts must not leave the gun stuck in the other mount's pose.
+  check('handing the gun back to the head restores screen framing',
+    await page.evaluate(() => window.WabbitSeason.shotgun.hipPos.x > 0.01),
+    await page.evaluate(() => `x=${window.WabbitSeason.shotgun.hipPos.x.toFixed(3)}`));
+
+  // The gun's framing must come from the live projection, not camera.fov,
+  // which WebXR never updates.
+  const proj = await page.evaluate(() => {
+    const { shotgun, world } = window.WabbitSeason;
+    const cam = world.camera;
+    const before = shotgun.hipPos.x;
+    const saved = cam.projectionMatrix.clone();
+    cam.projectionMatrix.elements[0] *= 2;   // a much narrower frustum
+    shotgun.layoutFor(cam);
+    const after = shotgun.hipPos.x;
+    cam.projectionMatrix.copy(saved);
+    shotgun.layoutFor(cam);
+    return { before: +before.toFixed(3), after: +after.toFixed(3) };
+  });
+  check('gun framing follows the XR projection matrix', proj.before !== proj.after,
+    JSON.stringify(proj));
+
   console.log('\n• console');
   for (const e of errors) console.log(`        ${e}`);
   check('no console or page errors', errors.length === 0, `${errors.length} error(s)`);

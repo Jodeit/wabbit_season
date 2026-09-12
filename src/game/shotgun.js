@@ -62,6 +62,13 @@ export class Shotgun {
     this.targetBent = 0;
     this.smoke = [];
 
+    /**
+     * 'camera' — the device *is* the aim (a phone, or a headset with no
+     * controller). The gun is framed against the screen.
+     * 'controller' — a tracked hand holds it, so it simply points where the
+     * hand points and screen-relative framing would be wrong.
+     */
+    this.mount = 'camera';
     this.hipPos = new THREE.Vector3();
     this.adsPos = new THREE.Vector3();
     this._aspect = 0;
@@ -144,10 +151,16 @@ export class Shotgun {
   }
 
   /** Attach the rig to whatever drives aiming this session. */
-  attachTo(parent) {
+  attachTo(parent, mount = 'camera') {
     parent.add(this.rig);
     this.rig.position.set(0, 0, 0);
     this.rig.rotation.set(0, 0, 0);
+    this.mount = mount;
+    // Invalidate the layout cache: the two mounts compute completely different
+    // poses, so a cached frustum from before the switch would leave the gun
+    // stuck in the other mount's position.
+    this._fov = 0;
+    this._aspect = 0;
   }
 
   setAds(on) {
@@ -205,33 +218,55 @@ export class Shotgun {
    * only does work when the projection actually changed.
    */
   layoutFor(camera) {
-    if (camera.aspect === this._aspect && camera.fov === this._fov) return;
-    this._aspect = camera.aspect;
-    this._fov = camera.fov;
+    if (this.mount === 'controller') {
+      // Held in a tracked hand: the gun sits just ahead of the grip and points
+      // where the hand points. Framing it against the screen would drag it
+      // away from the player's actual hand.
+      this.hipPos.set(0, -0.02, -0.12);
+      this.adsPos.set(0, -0.02, -0.12);
+      return;
+    }
 
-    const halfH = GUN_DEPTH * Math.tan((camera.fov * Math.PI) / 360);
-    const halfW = halfH * camera.aspect;
+    /*
+     * Derive the frustum from the projection matrix rather than camera.fov.
+     * Under WebXR the pose and projection are supplied by the runtime and
+     * three writes projectionMatrix directly -- `fov` and `aspect` keep
+     * whatever they held before the session and are simply wrong, which puts
+     * the gun somewhere off the side of a headset's view.
+     */
+    const m = camera.projectionMatrix.elements;
+    const halfH = GUN_DEPTH / m[5];
+    const halfW = GUN_DEPTH / m[0];
+    if (halfH === this._fov && halfW === this._aspect) return;
+    this._fov = halfH;
+    this._aspect = halfW;
+
     this.hipPos.set(halfW * HIP_FRAC.x, halfH * HIP_FRAC.y, -GUN_DEPTH);
     this.adsPos.set(halfW * ADS_FRAC.x, halfH * ADS_FRAC.y, -GUN_DEPTH);
   }
 
   update(dt, sceneRoot, camera) {
     this.t += dt;
-    if (camera?.isPerspectiveCamera) this.layoutFor(camera);
+    if (camera?.projectionMatrix) this.layoutFor(camera);
     this.ads = damp(this.ads, this.targetAds, 12, dt);
     this.recoil = damp(this.recoil, 0, 9, dt);
     this.bentAmount = damp(this.bentAmount, this.targetBent, 7, dt);
 
     // Pose blend between hip and shouldered.
     this.model.position.lerpVectors(this.hipPos, this.adsPos, this.ads);
-    this.model.rotation.set(
-      lerp(HIP_ROT.x, ADS_ROT.x, this.ads),
-      lerp(HIP_ROT.y, ADS_ROT.y, this.ads),
-      lerp(HIP_ROT.z, ADS_ROT.z, this.ads)
-    );
+    if (this.mount === 'controller') {
+      this.model.rotation.set(0, 0, 0);
+    } else {
+      this.model.rotation.set(
+        lerp(HIP_ROT.x, ADS_ROT.x, this.ads),
+        lerp(HIP_ROT.y, ADS_ROT.y, this.ads),
+        lerp(HIP_ROT.z, ADS_ROT.z, this.ads)
+      );
+    }
 
-    // Idle breathing sway; much calmer when shouldered.
-    const swayScale = lerp(1, 0.22, this.ads);
+    // Idle breathing sway; much calmer when shouldered, and absent entirely
+    // when a real hand is holding it — the hand already supplies the motion.
+    const swayScale = this.mount === 'controller' ? 0 : lerp(1, 0.22, this.ads);
     this.model.position.x += Math.sin(this.t * 1.3) * 0.006 * swayScale;
     this.model.position.y += Math.sin(this.t * 2.1) * 0.005 * swayScale;
     this.model.rotation.z += Math.sin(this.t * 0.9) * 0.02 * swayScale;
