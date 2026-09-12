@@ -160,6 +160,7 @@ src/
     reticle.js         placement reticle
     scanmesh.js        scan readout: real mesh/planes, or the assumed surface
     detect.js          finds corners, wall edges and furniture in the scan
+    occlusion.js       depth-only geometry, so real surfaces hide him
   audio/sfx.js         procedural sound board
   ui/screens.js        screen switching and HUD banners
 ```
@@ -177,6 +178,21 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **Real surfaces have to hide him, or none of it reads as real.** Everything
+  drawn otherwise floats on top of the camera image — he renders *over* your
+  duvet — which is what makes AR look like a sticker. The detected walls and
+  furniture are drawn as invisible geometry that still writes depth: they paint
+  nothing, so the camera shows through untouched, but anything behind them is
+  depth-rejected. The floor is deliberately excluded, since he stands on it and
+  a plane at his feet would z-fight.
+- **He hides behind furniture, not on it.** A spot on a horizontal surface goes
+  at the edge *furthest* from the player, tucked slightly past it. The near
+  edge stands him on top of the bed in plain sight.
+- **The AR session outlives a round.** Ending it and requesting a new one for
+  the next hunt is unreliable on iOS WebXR browsers, and even when it works it
+  costs a fresh permission prompt, an ARKit warm-up, and every surface already
+  scanned. `dom-overlay` renders the results screen inside the live session
+  instead; only going back to the title actually ends it.
 - **Finding the hiding spots is the game's job, not the player's.** Asking
   someone to aim at each piece of furniture and tap is worse than it sounds on
   iOS, where the hit test only reports surfaces inside a *finished* ARKit

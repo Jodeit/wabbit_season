@@ -4,7 +4,7 @@ import { sfx } from '../audio/sfx.js';
 import { toast } from '../ui/screens.js';
 import { KINDS } from './cover.js';
 import { ScanMesh } from './scanmesh.js';
-import { detectSpots } from './detect.js';
+import { detectRoom } from './detect.js';
 
 const MIN_SPOTS = 2;
 const MAX_SPOTS = 6;
@@ -33,9 +33,10 @@ const DETECT_EVERY = 0.6;
  * tapping the same couch six times does not fill it.
  */
 export class ScanPhase {
-  constructor({ world, backend, cover, reticle, scanMesh }) {
+  constructor({ world, backend, cover, reticle, scanMesh, occluders }) {
     this.world = world;
     this.scanMesh = scanMesh;
+    this.occluders = occluders;
     this.backend = backend;
     this.cover = cover;
     this.reticle = reticle;
@@ -210,7 +211,9 @@ export class ScanPhase {
     if (!this.scanMesh.sensed || !this.scanMesh.samples.length) return;
 
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
-    const detected = detectSpots(this.scanMesh.samples, this.cover.floorY, camPos);
+    const { spots: detected, planes } = detectRoom(
+      this.scanMesh.samples, this.cover.floorY, camPos);
+    this.occluders.update(planes);
     if (!detected.length) return;
 
     const manual = this.cover.spots.filter((s) => !s.auto).length;

@@ -25,7 +25,8 @@ const MIN_SAMPLES = 14;      // per cluster, before it is believed
 const Y_BIN = 0.1;           // metres, for grouping horizontal surfaces
 const YAW_BIN = Math.PI / 9; // 20 degrees, for grouping wall orientations
 const D_BIN = 0.2;           // metres, for separating parallel walls
-const MERGE_DISTANCE = 0.7;  // spots closer than this are the same place
+const MERGE_DISTANCE = 0.7;        // same-kind spots closer than this are one place
+const CROSS_KIND_DISTANCE = 0.3;   // different kinds may share a location
 const FURNITURE_MIN = 0.25;  // above the floor
 const FURNITURE_MAX = 1.35;
 
@@ -61,33 +62,43 @@ function cluster(samples, keyOf) {
  * @param {THREE.Vector3} camPos
  * @returns {Array<{position, normal, kind, weight}>}
  */
-export function detectSpots(samples, floorY, camPos) {
-  if (samples.length < MIN_SAMPLES) return [];
+export function detectRoom(samples, floorY, camPos) {
+  if (samples.length < MIN_SAMPLES) return { spots: [], planes: [] };
 
   const horizontal = samples.filter((s) => Math.abs(s.n.y) > HORIZONTAL);
   const vertical = samples.filter((s) => Math.abs(s.n.y) < VERTICAL);
 
   const found = [];
+  const planes = [];
 
   // --- things to pop up from behind ----------------------------------
   // Horizontal surfaces at furniture height. The interesting point is not the
   // middle of the bed, it is the edge of it facing the player.
   for (const g of cluster(horizontal, (s) => Math.round(s.p.y / Y_BIN))) {
     const height = g.centre.y - floorY;
+    if (height >= FURNITURE_MIN) planes.push(toPlane(g, 'horizontal'));
     if (height < FURNITURE_MIN || height > FURNITURE_MAX) continue;
 
-    let nearest = null;
-    let best = Infinity;
+    // The far edge, not the near one. "Behind the kitchen island" means the
+    // island is between you and him; putting the spot on the near edge stands
+    // him on top of the furniture in plain sight, which is both the wrong joke
+    // and the thing that makes the depth read wrong.
+    let farthest = null;
+    let best = -Infinity;
     for (const p of g.points) {
       const d = p.distanceToSquared(camPos);
-      if (d < best) { best = d; nearest = p; }
+      if (d > best) { best = d; farthest = p; }
     }
-    if (!nearest) continue;
+    if (!farthest) continue;
+
+    // Tuck him just past the edge, so he rises from behind it.
+    const away = farthest.clone().sub(camPos).setY(0).normalize().multiplyScalar(0.18);
     found.push({
-      position: nearest.clone(),
+      position: farthest.clone().add(away),
       normal: new THREE.Vector3(0, 1, 0),
       kind: 'surface',
       weight: g.count,
+      surfaceY: g.centre.y,
     });
   }
 
@@ -97,6 +108,8 @@ export function detectSpots(samples, floorY, camPos) {
     const d = s.n.dot(s.p);
     return `${Math.round(yaw / YAW_BIN)}:${Math.round(d / D_BIN)}`;
   });
+
+  for (const w of walls) planes.push(toPlane(w, 'vertical'));
 
   // Two walls meeting make a corner. Their planes intersect in a vertical
   // line; it only counts if both walls actually have surface near that line,
@@ -147,7 +160,46 @@ export function detectSpots(samples, floorY, camPos) {
     }
   }
 
-  return prune(found, camPos);
+  return { spots: prune(found, camPos), planes };
+}
+
+/**
+ * Reduce a cluster to a rectangle lying in its plane: centre, orientation and
+ * size. Used to build invisible depth-only geometry, so that real walls and
+ * furniture hide the wabbit the way they would hide a real rabbit.
+ */
+function toPlane(g, orientation) {
+  const normal = g.normal.clone();
+  const up = Math.abs(normal.y) > 0.9
+    ? new THREE.Vector3(0, 0, 1)
+    : new THREE.Vector3(0, 1, 0);
+  const axisX = new THREE.Vector3().crossVectors(up, normal).normalize();
+  const axisY = new THREE.Vector3().crossVectors(normal, axisX).normalize();
+
+  let minX = Infinity; let maxX = -Infinity;
+  let minY = Infinity; let maxY = -Infinity;
+  for (const p of g.points) {
+    const v = p.clone().sub(g.centre);
+    const x = v.dot(axisX);
+    const y = v.dot(axisY);
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  const centre = g.centre.clone()
+    .addScaledVector(axisX, (minX + maxX) / 2)
+    .addScaledVector(axisY, (minY + maxY) / 2);
+
+  return {
+    orientation,
+    centre,
+    normal,
+    width: Math.max(0.2, maxX - minX),
+    height: Math.max(0.2, maxY - minY),
+    count: g.count,
+  };
 }
 
 /** Where two vertical planes cross, in plan view. Null if near-parallel. */
@@ -193,7 +245,15 @@ function prune(found, camPos) {
 
   for (const spot of ranked) {
     if (spot.dist < 0.5 || spot.dist > 8) continue;
-    if (kept.some((k) => k.position.distanceTo(spot.position) < MERGE_DISTANCE)) continue;
+    // Two spots of the same kind close together are the same place. Two of
+    // different kinds are not: the far edge of a bed and the corner it sits
+    // against are one location but two different gags, and collapsing them
+    // silently loses the "pop up from behind it" half.
+    const tooClose = kept.some((k) => {
+      const limit = k.kind === spot.kind ? MERGE_DISTANCE : CROSS_KIND_DISTANCE;
+      return k.position.distanceTo(spot.position) < limit;
+    });
+    if (tooClose) continue;
     kept.push(spot);
   }
   return kept;

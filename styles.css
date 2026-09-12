@@ -63,6 +63,9 @@ html, body {
   pointer-events: none;
 }
 #overlay .screen { pointer-events: auto; }        /* full-screen menus */
+/* The diagnostics sheet is not a .screen, so it needs its own grant -- without
+   it the panel opens over everything and nothing inside it can be tapped. */
+#overlay .diag { pointer-events: auto; }
 #overlay .screen.bare { pointer-events: none; }   /* in-world HUDs */
 #overlay .screen.bare .scan-bottom,
 #overlay .screen.bare .kind,

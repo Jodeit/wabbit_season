@@ -6,6 +6,7 @@ import { FallbackBackend } from './ar/fallback.js';
 import { CoverSet } from './game/cover.js';
 import { Reticle } from './game/reticle.js';
 import { ScanMesh } from './game/scanmesh.js';
+import { Occluders } from './game/occlusion.js';
 import { Wabbit } from './game/wabbit.js';
 import { Shotgun } from './game/shotgun.js';
 import { Effects } from './game/effects.js';
@@ -26,6 +27,7 @@ const world = createWorld($('#stage'));
 const cover = new CoverSet(world.scene);
 const reticle = new Reticle(world.scene);
 const scanMesh = new ScanMesh(world.scene);
+const occluders = new Occluders(world.scene);
 
 const wabbit = new Wabbit();
 world.scene.add(wabbit.root);
@@ -45,7 +47,7 @@ const effects = new Effects({
   overlay,
 });
 
-const scan = new ScanPhase({ world, backend: null, cover, reticle, scanMesh });
+const scan = new ScanPhase({ world, backend: null, cover, reticle, scanMesh, occluders });
 const hunt = new HuntPhase({ world, cover, wabbit, shotgun, effects });
 
 let backend = null;
@@ -226,13 +228,18 @@ overlay.addEventListener('beforexrselect', (e) => {
 /* phase transitions                                                   */
 /* ------------------------------------------------------------------ */
 
-scan.onComplete = () => {
+scan.onComplete = () => startHunt();
+
+function startHunt() {
   phase = 'hunt';
   reticle.setVisible(false);
   shotgun.rig.visible = true;
+  // Real surfaces hide him during the hunt; during the scan they would hide
+  // the scan overlay the player is trying to read.
+  occluders.setVisible(true);
   show('hunt');
   hunt.start();
-};
+}
 
 hunt.onComplete = (summary) => finishHunt(summary);
 
@@ -242,11 +249,36 @@ async function finishHunt(summary) {
   hunt.stop();
   effects.clear();
   shotgun.rig.visible = false;
+  occluders.setVisible(false);
   wabbit.setEmerge(0, true);
-  await endSession();
+  /*
+   * The AR session deliberately stays open.
+   *
+   * Ending it and requesting a fresh one for the next round is unreliable --
+   * on iOS WebXR browsers the restart often fails or hangs, and even when it
+   * works the player pays for a new permission prompt and a fresh ARKit
+   * world-tracking warm-up, losing every surface already scanned. The results
+   * screen is DOM, and dom-overlay renders DOM inside the session perfectly
+   * well, so it can simply appear over the live camera.
+   */
   renderResults(summary);
   show('results');
   sfx.fanfare();
+}
+
+/** Play again without touching the session, keeping the scanned room. */
+function huntAgain() {
+  if (!backend?.session && backend?.mode !== 'fallback') {
+    beginHunt();                 // session really is gone; start from scratch
+    return;
+  }
+  if (cover.count === 0) {
+    phase = 'scan';
+    scan.start();
+    show('scan');
+    return;
+  }
+  startHunt();
 }
 
 function renderResults(s) {
@@ -284,7 +316,16 @@ function renderResults(s) {
 
 $('#btn-start').addEventListener('click', beginHunt);
 $('#btn-howto').addEventListener('click', () => show('howto'));
-$('#btn-again').addEventListener('click', beginHunt);
+for (const btn of document.querySelectorAll('[data-goto="title"]')) {
+  btn.addEventListener('click', async () => {
+    if (backend) {
+      phase = 'idle';
+      occluders.setVisible(false);
+      await endSession();
+    }
+  });
+}
+$('#btn-again').addEventListener('click', huntAgain);
 $('#btn-quit').addEventListener('click', () => finishHunt(hunt.buildSummary()));
 
 document.addEventListener('visibilitychange', () => {
@@ -299,6 +340,7 @@ diagnostics.install(() => ({
   supportMode,
   coverSpots: cover.count,
   scanSource: scanMesh.source,
+  occluders: occluders.count,
   scanPatches: scanMesh.pointCount,
   scanSensed: scanMesh.sensed,
   realGeometry: scanMesh.planeCount,
@@ -311,7 +353,7 @@ show('title');
 window.__THREE = THREE;
 window.__GAGS = GAGS;
 window.WabbitSeason = {
-  world, cover, wabbit, shotgun, hunt, scan, effects, scanMesh,
+  world, cover, wabbit, shotgun, hunt, scan, effects, scanMesh, occluders,
   get backend() { return backend; },
   get phase() { return phase; },
   scanBackendHit: () => backend?._estimateHit?.() ?? backend?.lastHit ?? null,

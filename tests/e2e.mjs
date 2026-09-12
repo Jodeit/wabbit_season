@@ -333,6 +333,17 @@ try {
   await page.waitForTimeout(600);
   check('the wabbit shows up', await page.evaluate(() => window.WabbitSeason.hunt.state === 'up'));
 
+  // Auto-detection never produces a door (by design), so the three emergence
+  // routes are set up explicitly here.
+  await page.evaluate(() => {
+    const { cover } = window.WabbitSeason;
+    const T = window.__THREE;
+    const up = new T.Vector3(0, 1, 0);
+    cover.add(new T.Vector3(1.0, 0.6, -2.0), up, 'surface');
+    cover.add(new T.Vector3(-1.6, 0.1, -2.2), up, 'corner');
+    cover.add(new T.Vector3(0.4, 0.1, -2.6), up, 'door');
+  });
+
   // Each kind has to actually move him into view, by its own route.
   for (const kind of kinds) {
     const emerged = await page.evaluate(async (k) => {
@@ -429,13 +440,55 @@ try {
   }));
   check('effects clean themselves up', leaks.particles === 0 && leaks.temporary === 0, JSON.stringify(leaks));
 
-  console.log('\n• results');
+  console.log('\n• occlusion');
+  const occ = await page.evaluate(() => {
+    const { occluders } = window.WabbitSeason;
+    const m = occluders.group.children[0]?.material;
+    return {
+      count: occluders.count,
+      visible: occluders.group.visible,
+      colorWrite: m ? m.colorWrite : null,
+      depthWrite: m ? m.depthWrite : null,
+    };
+  });
+  check('detected surfaces become occluders', occ.count > 0, `${occ.count} occluders`);
+  check('occluders write depth but paint nothing',
+    occ.colorWrite === false && occ.depthWrite === true, JSON.stringify(occ));
+  check('occluders are active during the hunt', occ.visible);
+
+  console.log('\n• results and replay');
   await page.click('#btn-quit');
   await page.waitForTimeout(900);
   check('results screen is shown', await page.isVisible('#screen-results'));
   check('final score is reported', +(await page.textContent('#res-score')) > 0);
   check('a rank is awarded', (await page.textContent('#res-rank')).length > 10);
-  check('camera is released', await page.evaluate(() => !document.querySelector('#passthrough').srcObject));
+  // Restarting the AR session between rounds is unreliable on iOS and throws
+  // away the scanned room, so the session has to survive the results screen.
+  check('the AR session survives the results screen',
+    await page.evaluate(() => !!document.querySelector('#passthrough').srcObject));
+  check('occluders stand down outside the hunt',
+    !(await page.evaluate(() => window.WabbitSeason.occluders.group.visible)));
+
+  await page.click('#btn-again');
+  await page.waitForTimeout(600);
+  const replay = await page.evaluate(() => ({
+    phase: window.WabbitSeason.phase,
+    spots: window.WabbitSeason.cover.count,
+    live: !!document.querySelector('#passthrough').srcObject,
+    score: window.WabbitSeason.hunt.score,
+  }));
+  check('Hunt Again replays without restarting the session',
+    replay.phase === 'hunt' && replay.live, JSON.stringify(replay));
+  check('it keeps the room that was already scanned', replay.spots > 0, `${replay.spots} spots`);
+  check('the score resets for the new round', replay.score === 0);
+
+  console.log('\n• leaving');
+  await page.click('#screen-hunt #btn-quit');
+  await page.waitForTimeout(600);
+  await page.click('#screen-results [data-goto="title"]');
+  await page.waitForTimeout(800);
+  check('going back to the title releases the camera',
+    await page.evaluate(() => !document.querySelector('#passthrough').srcObject));
 
   console.log('\n• diagnostics');
   await page.click('[data-goto="title"]').catch(() => {});
@@ -447,6 +500,13 @@ try {
     return { open, text };
   });
   check('the diagnostics panel opens', diag.open);
+  check('the diagnostics panel can be interacted with', await page.evaluate(() => {
+    const panel = document.querySelector('#diag');
+    panel.hidden = false;
+    const ok = getComputedStyle(document.querySelector('#diag-close')).pointerEvents !== 'none';
+    panel.hidden = true;
+    return ok;
+  }));
   check('it reports the build id', /^build: /m.test(diag.text));
   check('it reports the runtime mode', /^mode: /m.test(diag.text));
   check('it reports scan state', /scanPatches: /.test(diag.text));
