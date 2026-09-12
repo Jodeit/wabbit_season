@@ -211,9 +211,10 @@ export class ScanPhase {
     if (!this.scanMesh.sensed || !this.scanMesh.samples.length) return;
 
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
-    const { spots: detected, planes } = detectRoom(
+    const { spots: detected } = detectRoom(
       this.scanMesh.samples, this.cover.floorY, camPos);
-    this.occluders.update(planes);
+    // Occlude from the observed surface itself, not from a fitted shape.
+    this.occluders.update(this.scanMesh.samples);
     if (!detected.length) return;
 
     const manual = this.cover.spots.filter((s) => !s.auto).length;

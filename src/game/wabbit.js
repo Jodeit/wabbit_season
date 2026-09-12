@@ -50,6 +50,7 @@ export class Wabbit {
     this.body = new THREE.Group();
     this.root.add(this.body);
 
+    this._buildShadow();
     this._buildBody();
     this._buildHead();
     this._buildCarrot();
@@ -71,6 +72,40 @@ export class Wabbit {
   }
 
   /* ----------------------------------------------------------------- */
+  /**
+   * A soft contact shadow on the surface he is standing on.
+   *
+   * Without one he reads as a sticker floating in front of the room no matter
+   * how correct his position is: a shadow is most of what tells the eye that
+   * something is resting on a surface rather than hovering near it. It lives
+   * on the root rather than the body, so it stays put on the floor while he
+   * rises and ducks.
+   */
+  _buildShadow() {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(0,0,0,0.55)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.25)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    this.shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.42, 0.42),
+      new THREE.MeshBasicMaterial({
+        map: texture, transparent: true, depthWrite: false, opacity: 0,
+      })
+    );
+    this.shadow.rotation.x = -Math.PI / 2;
+    this.shadow.position.y = 0.006;   // just clear of the surface
+    this.root.add(this.shadow);
+  }
+
   _buildBody() {
     const torso = sphere(0.15, GREY);
     torso.scale.set(1, 1.15, 0.92);
@@ -328,6 +363,14 @@ export class Wabbit {
     // dodge is added on top of it rather than replacing it.
     this.body.rotation.z = this.lean * 0.9 + (this._peekLean ?? 0);
     this.body.position.x += this.lean * 0.14;
+
+    // Contact shadow: strongest and smallest when he is fully up and standing
+    // on the surface, gone entirely once he is back behind cover.
+    const e = this.emergeAmount;
+    this.shadow.material.opacity = e * 0.85;
+    const spread = lerp(1.25, 0.9, e);
+    this.shadow.scale.set(spread, spread, 1);
+    this.shadow.position.x = this.body.position.x;
 
     this.squash = damp(this.squash, 1, 7, dt);
     this.body.scale.set(1 / this.squash, this.squash, 1 / this.squash);

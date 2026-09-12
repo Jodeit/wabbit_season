@@ -291,6 +291,12 @@ try {
   check('it finds the corner where two walls meet',
     auto.some((a) => a.kind === 'corner' && Math.abs(a.pos[0] + 2.5) < 0.6 && Math.abs(a.pos[2] + 3) < 0.6),
     JSON.stringify(auto.filter((a) => a.kind === 'corner').map((a) => a.pos)));
+  // Standing him exactly on the corner line puts him inside the wall, where
+  // the wall's own occluders would slice him in half.
+  check('corner spots stand clear of the wall, not inside it',
+    auto.filter((a) => a.kind === 'corner')
+      .every((a) => a.pos[0] > -2.49 && a.pos[2] > -2.99),
+    JSON.stringify(auto.filter((a) => a.kind === 'corner').map((a) => a.pos)));
   check('it finds the bed as something to pop up over',
     auto.some((a) => a.kind === 'surface' && Math.abs(a.pos[1] - 0.55) < 0.2),
     JSON.stringify(auto.filter((a) => a.kind === 'surface').map((a) => a.pos)));
@@ -442,19 +448,57 @@ try {
 
   console.log('\n• occlusion');
   const occ = await page.evaluate(() => {
-    const { occluders } = window.WabbitSeason;
-    const m = occluders.group.children[0]?.material;
+    const { occluders, scanMesh } = window.WabbitSeason;
+    const m = occluders.mesh.material;
+    occluders.update(scanMesh.samples);
+    // Every occluder quad must sit on a cell that was really observed.
+    const T = window.__THREE;
+    const seen = new Set(scanMesh.samples.map((s) =>
+      `${Math.round(s.p.x / 0.07)},${Math.round(s.p.y / 0.07)},${Math.round(s.p.z / 0.07)}`));
+    let stray = 0;
+    const m4 = new T.Matrix4();
+    const pos = new T.Vector3();
+    for (let i = 0; i < occluders.count; i++) {
+      occluders.mesh.getMatrixAt(i, m4);
+      pos.setFromMatrixPosition(m4);
+      // Allow a cell of slack for the normal-direction bias.
+      const near = [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => [-1, 0, 1].some((dz) =>
+        seen.has(`${Math.round(pos.x / 0.07) + dx},${Math.round(pos.y / 0.07) + dy},${Math.round(pos.z / 0.07) + dz}`))));
+      if (!near) stray++;
+    }
     return {
       count: occluders.count,
+      samples: scanMesh.samples.length,
+      stray,
       visible: occluders.group.visible,
-      colorWrite: m ? m.colorWrite : null,
-      depthWrite: m ? m.depthWrite : null,
+      colorWrite: m.colorWrite,
+      depthWrite: m.depthWrite,
     };
   });
-  check('detected surfaces become occluders', occ.count > 0, `${occ.count} occluders`);
+  check('sensed surface becomes occluders', occ.count > 0, `${occ.count} quads`);
   check('occluders write depth but paint nothing',
     occ.colorWrite === false && occ.depthWrite === true, JSON.stringify(occ));
   check('occluders are active during the hunt', occ.visible);
+  // The whole point: no occluder anywhere the room was not actually observed,
+  // which is what put a phantom sheet across a bare wall.
+  check('no occluder sits where nothing was sensed', occ.stray === 0,
+    `${occ.stray} stray of ${occ.count}`);
+  check('one occluder per observed cell', occ.count === Math.min(occ.samples, 4000),
+    `${occ.count} vs ${occ.samples}`);
+
+  console.log('\n• grounding');
+  const shadow = await page.evaluate(() => {
+    const { wabbit } = window.WabbitSeason;
+    wabbit.setEmerge(1, true);
+    wabbit.update(0.016, new window.__THREE.Vector3(0, 1.5, 0));
+    const up = wabbit.shadow.material.opacity;
+    wabbit.setEmerge(0, true);
+    wabbit.update(0.016, new window.__THREE.Vector3(0, 1.5, 0));
+    return { up, down: wabbit.shadow.material.opacity, parent: wabbit.shadow.parent === wabbit.root };
+  });
+  check('he casts a contact shadow when up', shadow.up > 0.5, JSON.stringify(shadow));
+  check('the shadow fades as he ducks away', shadow.down < 0.05);
+  check('the shadow stays on the surface, not on his body', shadow.parent);
 
   console.log('\n• results and replay');
   await page.click('#btn-quit');

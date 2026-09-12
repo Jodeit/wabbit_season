@@ -178,13 +178,23 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
-- **Real surfaces have to hide him, or none of it reads as real.** Everything
-  drawn otherwise floats on top of the camera image — he renders *over* your
-  duvet — which is what makes AR look like a sticker. The detected walls and
-  furniture are drawn as invisible geometry that still writes depth: they paint
-  nothing, so the camera shows through untouched, but anything behind them is
-  depth-rejected. The floor is deliberately excluded, since he stands on it and
-  a plane at his feet would z-fight.
+- **Occlusion is built from observed surface, never from a fitted shape.**
+  Fitting a rectangle around each cluster of samples is cheap and wrong: a
+  bounding box spans everything between its corners, including the parts of the
+  room nothing was sensed on, and the result is a phantom sheet slicing the
+  wabbit in half against a bare wall. The occluder is now one small depth-only
+  quad per observed cell — it hides him where the room was genuinely seen and
+  nowhere else. Gaps where the scan is thin are honest; better a wabbit who
+  fails to hide than one sawn in half by geometry that does not exist. Each
+  quad is pushed a couple of centimetres back along its own normal, so a
+  surface never clips whatever is resting on it.
+- **He casts a contact shadow.** Without one he reads as a sticker no matter
+  how correct his position is — a shadow is most of what tells the eye that
+  something rests on a surface rather than hovering near it.
+- **Spots stand clear of walls.** The intersection of two wall planes is the
+  corner line itself, which is *inside* the wall as far as occlusion is
+  concerned; placed there, the wall's own cells sit between him and the player
+  and eat him.
 - **He hides behind furniture, not on it.** A spot on a horizontal surface goes
   at the edge *furthest* from the player, tucked slightly past it. The near
   edge stands him on top of the bed in plain sight.

@@ -27,6 +27,7 @@ const YAW_BIN = Math.PI / 9; // 20 degrees, for grouping wall orientations
 const D_BIN = 0.2;           // metres, for separating parallel walls
 const MERGE_DISTANCE = 0.7;        // same-kind spots closer than this are one place
 const CROSS_KIND_DISTANCE = 0.3;   // different kinds may share a location
+const CLEARANCE = 0.28;            // how far to stand him clear of a wall
 const FURNITURE_MIN = 0.25;  // above the floor
 const FURNITURE_MAX = 1.35;
 
@@ -63,20 +64,18 @@ function cluster(samples, keyOf) {
  * @returns {Array<{position, normal, kind, weight}>}
  */
 export function detectRoom(samples, floorY, camPos) {
-  if (samples.length < MIN_SAMPLES) return { spots: [], planes: [] };
+  if (samples.length < MIN_SAMPLES) return { spots: [] };
 
   const horizontal = samples.filter((s) => Math.abs(s.n.y) > HORIZONTAL);
   const vertical = samples.filter((s) => Math.abs(s.n.y) < VERTICAL);
 
   const found = [];
-  const planes = [];
 
   // --- things to pop up from behind ----------------------------------
   // Horizontal surfaces at furniture height. The interesting point is not the
   // middle of the bed, it is the edge of it facing the player.
   for (const g of cluster(horizontal, (s) => Math.round(s.p.y / Y_BIN))) {
     const height = g.centre.y - floorY;
-    if (height >= FURNITURE_MIN) planes.push(toPlane(g, 'horizontal'));
     if (height < FURNITURE_MIN || height > FURNITURE_MAX) continue;
 
     // The far edge, not the near one. "Behind the kitchen island" means the
@@ -109,8 +108,6 @@ export function detectRoom(samples, floorY, camPos) {
     return `${Math.round(yaw / YAW_BIN)}:${Math.round(d / D_BIN)}`;
   });
 
-  for (const w of walls) planes.push(toPlane(w, 'vertical'));
-
   // Two walls meeting make a corner. Their planes intersect in a vertical
   // line; it only counts if both walls actually have surface near that line,
   // otherwise it is two walls that never meet inside this room.
@@ -126,10 +123,17 @@ export function detectRoom(samples, floorY, camPos) {
       if (!line) continue;
       if (!hasSurfaceNear(a.points, line) || !hasSurfaceNear(b.points, line)) continue;
 
+      // Stand him just clear of the corner, out in the room.
+      //
+      // The intersection of two wall planes is the corner line itself, which
+      // is *inside* the wall as far as the occluders are concerned -- the wall
+      // cells would then sit between him and the player and eat him, which
+      // looks like being sliced in half by nothing at all.
+      const out = a.normal.clone().add(b.normal).normalize();
       found.push({
-        position: new THREE.Vector3(line.x, floorY + 0.05, line.z),
-        // Face out of the corner, so he leans towards the room.
-        normal: a.normal.clone().add(b.normal).normalize(),
+        position: new THREE.Vector3(line.x, floorY + 0.05, line.z)
+          .addScaledVector(out, CLEARANCE),
+        normal: out,
         kind: 'corner',
         weight: Math.min(a.count, b.count) * 2,   // a real corner is a prize
       });
@@ -152,7 +156,8 @@ export function detectRoom(samples, floorY, camPos) {
     if (!min || maxT - minT < 0.8) continue;      // too small to have ends
     for (const edge of [min, max]) {
       found.push({
-        position: new THREE.Vector3(edge.x, floorY + 0.05, edge.z),
+        position: new THREE.Vector3(edge.x, floorY + 0.05, edge.z)
+          .addScaledVector(wall.normal, CLEARANCE),
         normal: wall.normal.clone(),
         kind: 'corner',
         weight: wall.count,
@@ -160,46 +165,7 @@ export function detectRoom(samples, floorY, camPos) {
     }
   }
 
-  return { spots: prune(found, camPos), planes };
-}
-
-/**
- * Reduce a cluster to a rectangle lying in its plane: centre, orientation and
- * size. Used to build invisible depth-only geometry, so that real walls and
- * furniture hide the wabbit the way they would hide a real rabbit.
- */
-function toPlane(g, orientation) {
-  const normal = g.normal.clone();
-  const up = Math.abs(normal.y) > 0.9
-    ? new THREE.Vector3(0, 0, 1)
-    : new THREE.Vector3(0, 1, 0);
-  const axisX = new THREE.Vector3().crossVectors(up, normal).normalize();
-  const axisY = new THREE.Vector3().crossVectors(normal, axisX).normalize();
-
-  let minX = Infinity; let maxX = -Infinity;
-  let minY = Infinity; let maxY = -Infinity;
-  for (const p of g.points) {
-    const v = p.clone().sub(g.centre);
-    const x = v.dot(axisX);
-    const y = v.dot(axisY);
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-
-  const centre = g.centre.clone()
-    .addScaledVector(axisX, (minX + maxX) / 2)
-    .addScaledVector(axisY, (minY + maxY) / 2);
-
-  return {
-    orientation,
-    centre,
-    normal,
-    width: Math.max(0.2, maxX - minX),
-    height: Math.max(0.2, maxY - minY),
-    count: g.count,
-  };
+  return { spots: prune(found, camPos) };
 }
 
 /** Where two vertical planes cross, in plan view. Null if near-parallel. */
