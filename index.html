@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="theme-color" content="#1b1206" />
+<!-- WKWebView caches aggressively; the deploy also stamps ?v= onto every asset. -->
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="description" content="Wabbit Season — an augmented reality cartoon hunting parody. Scan your room, shoulder your shotgun, and miss a wascally wabbit in your own living room." />
 <title>Wabbit Season</title>
@@ -22,7 +24,7 @@
 }
 </script>
 </head>
-<body>
+<body data-build="">
   <canvas id="stage"></canvas>
   <video id="passthrough" playsinline muted autoplay></video>
 
@@ -42,6 +44,7 @@
         <button class="btn primary" id="btn-start">Stawt the Hunt</button>
         <button class="btn ghost" id="btn-howto">How to Play</button>
         <p class="support" id="support-line">Checking your device…</p>
+        <p class="build"><span id="build-id">dev</span> · <button class="linkish" id="btn-diag">diagnostics</button></p>
       </div>
     </section>
 
@@ -116,6 +119,18 @@
         <h2 id="err-title">Twouble</h2>
         <p id="err-body"></p>
         <button class="btn primary" data-goto="title">Back</button>
+      </div>
+    </section>
+
+    <section class="diag" id="diag" hidden>
+      <div class="diag-card">
+        <h3>Diagnostics</h3>
+        <p class="diag-note">Nothing is sent anywhere — this site has no server. Copy it into a bug report if you like.</p>
+        <pre id="diag-body"></pre>
+        <div class="diag-actions">
+          <button class="btn primary small" id="diag-copy">Copy</button>
+          <button class="btn ghost small" id="diag-close">Close</button>
+        </div>
       </div>
     </section>
 

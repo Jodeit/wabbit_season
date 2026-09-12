@@ -110,7 +110,9 @@ export class ScanPhase {
         // measurement of anything -- plotting a fan of them at a fixed guessed
         // distance scatters dots through mid-air and across the ceiling, which
         // looks like a scan while corresponding to nothing in the room.
-        if (info.hit.real) this.scanMesh.addPoint(info.hit.position, true);
+        if (info.hit.real) {
+          this.scanMesh.addPoint(info.hit.position, true, info.hit.normal);
+        }
         const dir = this.world.camera.getWorldDirection(new THREE.Vector3());
         const yaw = Math.atan2(dir.x, dir.z);
         const bin = Math.floor(((yaw + Math.PI) / (Math.PI * 2)) * YAW_BINS) % YAW_BINS;

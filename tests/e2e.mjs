@@ -165,7 +165,7 @@ try {
   check('the scan overlay is drawn', readout.visible);
   // Estimated surfaces are guesses, not measurements. Plotting them as points
   // would scatter dots through mid-air and read as a scan of nothing.
-  check('no points are plotted without a depth sensor', readout.points === 0,
+  check('no patches are drawn without a depth sensor', readout.points === 0,
     `${readout.points} points`);
   check('the assumed floor is drawn instead',
     await page.evaluate(() => window.WabbitSeason.scanMesh.assumedFloor.visible));
@@ -186,9 +186,14 @@ try {
     };
   });
   console.log(`        "${sensedCloud.text}"`);
-  check('sensed surfaces do build a point cloud', sensedCloud.points === 12,
+  check('sensed surfaces do build a surface', sensedCloud.points === 12,
     `${sensedCloud.points} points`);
-  check('sensed surfaces are reported as sensed', /sensed/.test(sensedCloud.text));
+  check('sensed surface is reported as area mapped', /m² of surface mapped/.test(sensedCloud.text));
+  check('sensed surface is drawn as oriented patches, not dots',
+    await page.evaluate(() => {
+      const { scanMesh } = window.WabbitSeason;
+      return scanMesh.patches.isInstancedMesh && scanMesh.patches.count === scanMesh.pointCount;
+    }));
 
   // The real-geometry path cannot run in headless Chromium (no XR runtime), so
   // feed it a synthetic XRFrame shaped like the spec to prove it wires up.
@@ -358,6 +363,20 @@ try {
   check('final score is reported', +(await page.textContent('#res-score')) > 0);
   check('a rank is awarded', (await page.textContent('#res-rank')).length > 10);
   check('camera is released', await page.evaluate(() => !document.querySelector('#passthrough').srcObject));
+
+  console.log('\n• diagnostics');
+  await page.click('[data-goto="title"]').catch(() => {});
+  const diag = await page.evaluate(() => {
+    document.querySelector('#btn-diag').click();
+    const text = document.querySelector('#diag-body').textContent;
+    const open = !document.querySelector('#diag').hidden;
+    document.querySelector('#diag-close').click();
+    return { open, text };
+  });
+  check('the diagnostics panel opens', diag.open);
+  check('it reports the build id', /^build: /m.test(diag.text));
+  check('it reports the runtime mode', /^mode: /m.test(diag.text));
+  check('it reports scan state', /scanPatches: /.test(diag.text));
 
   console.log('\n• console');
   for (const e of errors) console.log(`        ${e}`);

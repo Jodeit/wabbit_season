@@ -168,6 +168,23 @@ h2 { margin: 0 0 10px; font-size: 26px; color: var(--burnt); -webkit-text-stroke
   color: var(--parchment);
   border-color: rgba(246,231,200,.5);
 }
+.build {
+  margin: 8px 0 0;
+  font-size: 11px;
+  letter-spacing: .06em;
+  opacity: .55;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.linkish {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .support { margin: 12px 0 0; font-size: 12.5px; opacity: .72; line-height: 1.4; }
 .support.warn { color: #8a3a10; opacity: 1; font-weight: 700; }
 
@@ -404,6 +421,47 @@ body.scanning .toast {
   top: calc(104px + var(--safe-t));
   bottom: auto;
 }
+
+.diag {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + var(--safe-t)) 12px calc(16px + var(--safe-b));
+  background: rgba(10, 7, 3, .88);
+}
+.diag[hidden] { display: none; }
+.diag-card {
+  width: min(520px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1b1409;
+  border: 2px solid rgba(246, 231, 200, .35);
+  border-radius: 16px;
+  padding: 14px;
+}
+.diag-card h3 { margin: 0 0 4px; font-size: 18px; }
+.diag-note { margin: 0 0 10px; font-size: 12px; opacity: .7; line-height: 1.4; }
+#diag-body {
+  flex: 1;
+  overflow: auto;
+  margin: 0 0 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, .45);
+  border-radius: 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.diag-actions { display: flex; gap: 8px; }
+.diag-actions .btn { margin: 0; flex: 1; }
 
 .flash {
   position: absolute;

@@ -36,9 +36,15 @@ jobs:
         with:
           enablement: true
 
+      # Stamp a build id onto every asset URL. Without this, an iOS WKWebView
+      # can keep serving a cached module graph indefinitely after a deploy --
+      # the page reloads, the modules do not, and a fix silently never lands.
+      - name: Stamp build id
+        run: node tools/stamp.mjs "${GITHUB_SHA::7}" dist
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
 
       - id: deployment
         uses: actions/deploy-pages@v4

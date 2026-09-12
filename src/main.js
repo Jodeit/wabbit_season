@@ -13,6 +13,7 @@ import { ScanPhase } from './game/scan.js';
 import { HuntPhase } from './game/hunt.js';
 import { initAudio, sfx } from './audio/sfx.js';
 import { fatal, show, toast } from './ui/screens.js';
+import * as diagnostics from './ui/diagnostics.js';
 import * as GAGS from './game/gags.js';
 
 /* ------------------------------------------------------------------ */
@@ -106,6 +107,12 @@ async function beginHunt() {
     return;
   }
 
+  diagnostics.noteMode(backend.mode, {
+    hitTest: backend.hasHitTest ?? false,
+    enabledFeatures: [...(backend.session?.enabledFeatures ?? [])].join(',') || 'n/a',
+    domOverlay: backend.session?.domOverlayState?.type ?? 'none',
+  });
+
   if (backend.mode === 'webxr') wireXRInput(backend.session);
   if (backend.mode === 'webxr' && !backend.hasHitTest) {
     toast('No surface sensing on this headset — placements are estimated.', 3600);
@@ -122,6 +129,7 @@ async function beginHunt() {
 
 function handleStartError(err) {
   console.error('could not start AR session', err);
+  diagnostics.noteError('session start', err);
   const code = err?.message;
   if (code === 'CAMERA_DENIED') {
     fatal('No Camewa, No Hunt', 'Camera access was blocked. Allow it in your browser settings and try again — the whole game is played through the camera.');
@@ -285,6 +293,16 @@ document.addEventListener('visibilitychange', () => {
     shotgun.setAds(false);
   }
 });
+
+diagnostics.install(() => ({
+  phase,
+  supportMode,
+  coverSpots: cover.count,
+  scanSource: scanMesh.source,
+  scanPatches: scanMesh.pointCount,
+  scanSensed: scanMesh.sensed,
+  realGeometry: scanMesh.planeCount,
+}));
 
 probeSupport();
 show('title');

@@ -17,36 +17,46 @@ import * as THREE from 'three';
  */
 
 const MAX_POINTS = 4000;
-const CELL = 0.07;          // metres; keeps the cloud spread out, not clumped
+const CELL = 0.07;          // metres; one patch per cell, so they tile
+const PATCH = 0.105;        // slightly wider than a cell, so patches overlap
 
 const SENSED = new THREE.Color(0x9fe870);
-const ESTIMATED = new THREE.Color(0x6fb8ff);
+const UP_FALLBACK = new THREE.Vector3(0, 1, 0);
 
 export class ScanMesh {
   constructor(scene) {
     this.group = new THREE.Group();
     scene.add(this.group);
 
-    // --- sampled points -------------------------------------------------
-    this.positions = new Float32Array(MAX_POINTS * 3);
-    this.colors = new Float32Array(MAX_POINTS * 3);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
-    geo.setDrawRange(0, 0);
-    this.points = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: 0.035,
-      vertexColors: true,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-    }));
-    this.points.frustumCulled = false;
-    this.group.add(this.points);
+    // --- sampled surface ------------------------------------------------
+    // Drawn as small patches lying *in* each sensed surface, oriented to its
+    // normal, rather than screen-facing dots. Dots tell you a ray hit
+    // something; overlapping patches show you the shape of the thing it hit,
+    // and a swept wall fills in as a continuous sheet. This is as close to a
+    // mesh as hit-test data honestly gets -- the runtimes that do real
+    // reconstruction are handled separately, above.
+    this.patches = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(PATCH, PATCH),
+      new THREE.MeshBasicMaterial({
+        color: SENSED,
+        transparent: true,
+        opacity: 0.3,   // a skin over the room, not a coat of paint
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+      MAX_POINTS
+    );
+    this.patches.count = 0;
+    this.patches.frustumCulled = false;
+    this.patches.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.patches);
 
     this.count = 0;
     this._cells = new Set();
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._scale = new THREE.Vector3(1, 1, 1);
+    this._up = new THREE.Vector3(0, 0, 1);
 
     // --- real geometry --------------------------------------------------
     this.geometryGroup = new THREE.Group();
@@ -77,32 +87,27 @@ export class ScanMesh {
   get pointCount() { return this.count; }
 
   /**
-   * Record a surface sample.
+   * Record a sensed surface sample.
    * @param {THREE.Vector3} p
-   * @param {boolean} real  true when the device sensed it, false when guessed
+   * @param {boolean} real    true when the device sensed it
+   * @param {THREE.Vector3} [normal]  surface normal, for orienting the patch
    */
-  addPoint(p, real) {
-    // One point per cell, so sweeping covers ground instead of piling up.
+  addPoint(p, real, normal = null) {
+    // One patch per cell, so sweeping covers ground instead of piling up.
     const key = `${Math.round(p.x / CELL)},${Math.round(p.y / CELL)},${Math.round(p.z / CELL)}`;
     if (this._cells.has(key)) return false;
     this._cells.add(key);
-
     if (this.count >= MAX_POINTS) return false;
-    const i = this.count * 3;
-    this.positions[i] = p.x;
-    this.positions[i + 1] = p.y;
-    this.positions[i + 2] = p.z;
-    const c = real ? SENSED : ESTIMATED;
-    this.colors[i] = c.r;
-    this.colors[i + 1] = c.g;
-    this.colors[i + 2] = c.b;
-    this.count++;
 
-    const geo = this.points.geometry;
-    geo.setDrawRange(0, this.count);
-    geo.attributes.position.needsUpdate = true;
-    geo.attributes.color.needsUpdate = true;
-    geo.computeBoundingSphere();
+    // Lie the patch in the surface. Without a normal it faces up, which is
+    // right for the floor and no worse than a dot anywhere else.
+    this._q.setFromUnitVectors(this._up, normal ?? UP_FALLBACK);
+    this._m.compose(p, this._q, this._scale);
+    this.patches.setMatrixAt(this.count, this._m);
+
+    this.count++;
+    this.patches.count = this.count;
+    this.patches.instanceMatrix.needsUpdate = true;
     if (real) this.sensed = true;
     return true;
   }
@@ -183,7 +188,10 @@ export class ScanMesh {
     const plural = (word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (this.source === 'mesh') return `${plural('surface')} meshed · ${this.count} points`;
     if (this.source === 'planes') return `${plural('plane')} detected · ${this.count} points`;
-    if (this.sensed) return `${this.count} surface points sensed`;
+    if (this.sensed) {
+      const area = this.count * CELL * CELL;
+      return `${area.toFixed(1)} m² of surface mapped`;
+    }
     return 'No depth sensor — surfaces are estimated';
   }
 
@@ -208,7 +216,7 @@ export class ScanMesh {
   clear() {
     this.count = 0;
     this._cells.clear();
-    this.points.geometry.setDrawRange(0, 0);
+    this.patches.count = 0;
     for (const [, entry] of this._tracked) {
       entry.object.parent?.remove(entry.object);
       entry.object.geometry?.dispose?.();

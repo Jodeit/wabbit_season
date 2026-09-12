@@ -74,7 +74,7 @@ that is:
 |---|---|---|
 | `mesh` — scene reconstruction (`XRMesh`) | green wireframe | Quest 3 and similar |
 | `planes` — detected planes (`XRPlane`) | green boundary polygons | Android Chrome |
-| `points` — sensed surface points | green dots | hit-test-only runtimes |
+| `points` — sensed surface samples | green patches lying in the surface | hit-test-only runtimes (incl. the iOS XR Viewer) |
 | *(nothing sensed)* | assumed floor grid only | iOS Safari |
 
 **No LiDAR in Safari.** iPhones and iPads have a depth sensor, but Safari does
@@ -87,7 +87,11 @@ nothing in it. What is drawn instead is the grid on the floor plane the game
 assumes, which is the actual model, labelled "No depth sensor — surfaces are
 estimated".
 
-Points only ever appear for surfaces a device really sensed.
+Surface patches only ever appear where a device really sensed something.
+They are drawn lying *in* the surface, oriented to its normal, rather than as
+screen-facing dots: dots tell you a ray hit something, overlapping patches
+show the shape of what it hit, and a swept wall fills in as a sheet. The
+readout gives the area covered rather than a sample count.
 
 ### Getting real AR on an iPhone
 
@@ -179,6 +183,24 @@ A few decisions worth knowing about:
   was lined up only selects *which* pool of gags it comes from: genuine
   on-target shots get the expensive cartoon-physics saves and score the most,
   wild ones get gags at the player's expense.
+
+## Diagnostics and cache-busting
+
+There is no server, no logging and no telemetry — nothing about a play session
+leaves the device. That is the right default for an app pointed at someone's
+bedroom, but it means a bug report is whatever the player can describe. So the
+title screen carries a **build id** and a **diagnostics** panel: runtime mode,
+granted XR features, DOM-overlay state, scan counters, recent errors, and a
+copy button. Nothing is transmitted; the player chooses what to share.
+
+The build id matters for a second reason. GitHub Pages sets its own cache
+headers and offers no way to change them, and an iOS `WKWebView` will keep
+serving a cached ES module graph long after a deploy — the page reloads, the
+modules do not, and a fix silently never lands. `tools/stamp.mjs` runs at
+deploy time and appends `?v=<short-sha>` to every local module specifier,
+stylesheet and import-map entry, so a new build is a new set of URLs. If the
+build id on screen does not match the latest commit, the device is serving a
+stale copy.
 
 ## Testing
 
