@@ -18,6 +18,7 @@ export class WebXRBackend {
     this.onEnd = null;
     this.lastHit = null;
     this.hasHitTest = false;
+    this.refSpace = null;
     this._clock = new THREE.Clock();
   }
 
@@ -27,7 +28,12 @@ export class WebXRBackend {
 
     const init = {
       requiredFeatures: ['local-floor'],
-      optionalFeatures: ['hit-test', 'dom-overlay', 'light-estimation', 'anchors', 'plane-detection'],
+      optionalFeatures: [
+        'hit-test', 'dom-overlay', 'light-estimation', 'anchors',
+        // Real room geometry where the runtime has it: planes on Android
+        // Chrome, a full scene mesh on headsets that do reconstruction.
+        'plane-detection', 'mesh-detection',
+      ],
       domOverlay: { root: this.overlayRoot },
     };
 
@@ -73,7 +79,7 @@ export class WebXRBackend {
   _tick(time, frame) {
     const dt = Math.min(this._clock.getDelta(), 0.1);
     this.lastHit = frame ? this._readHit(frame) : null;
-    this.frameCallback?.(dt, { frame, hit: this.lastHit });
+    this.frameCallback?.(dt, { frame, hit: this.lastHit, refSpace: this.refSpace });
     this.world.renderer.render(this.world.scene, this.world.camera);
   }
 

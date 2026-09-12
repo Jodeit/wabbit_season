@@ -62,6 +62,30 @@ tells you which you got.
 | **Passthrough** | The XR compositor | `getUserMedia` video behind a transparent canvas |
 | **Head tracking** | 6DoF, real world-locked content | 3DoF from the gyroscope |
 | **Surfaces** | Real hit-testing against sensed geometry | Estimated from where you're looking |
+| **Scan shows** | The real mesh or planes it detects | The floor and distance it assumes |
+
+### What the scan actually captures
+
+The scan draws what the device really gave it, and says which of three things
+that is:
+
+| Source | Drawn as | Where |
+|---|---|---|
+| `mesh` — scene reconstruction (`XRMesh`) | green wireframe | Quest 3 and similar |
+| `planes` — detected planes (`XRPlane`) | green boundary polygons | Android Chrome |
+| `points` — sampled surface points | blue dots + assumed floor grid | iOS, and hit-test-only runtimes |
+
+**No LiDAR.** iPhones and iPads have a depth sensor, but Safari does not
+expose it — there is no web API for ARKit's scene reconstruction, depth map or
+LiDAR, and no WebXR session to hang one off. So on iOS nothing is measured.
+The blue points are the surface the game is *assuming*: the reticle ray
+clamped to about three metres, fanned across the viewport as you pan, plus a
+grid drawn on the floor plane it assumes at `y = 0`.
+
+That is why the estimated case is drawn in a different colour, labelled
+"estimated — no depth sensor on this device", and never rendered as a solid
+mesh. A convincing mesh there would be a prop: it would imply the game had
+measured a room it cannot see.
 
 **On iPhone this runs in camera mode.** Safari still ships no `immersive-ar`
 session, so there is no WebXR AR on iOS at the time of writing regardless of
@@ -102,6 +126,7 @@ src/
     gags.js            the miss table and the dialogue
     effects.js         particles, screen shake, signs, decoys
     reticle.js         placement reticle
+    scanmesh.js        scan readout: real mesh/planes, or the assumed surface
   audio/sfx.js         procedural sound board
   ui/screens.js        screen switching and HUD banners
 ```
@@ -124,6 +149,9 @@ A few decisions worth knowing about:
   start button unlocks. An earlier version wanted ~200° and stalled in the
   nineties, which reads as a gate that never opens even when nothing is
   actually blocked.
+- **The scan visualisation never draws geometry the device did not sense.**
+  Where there is real data it is rendered as-is; where there is not, the
+  assumption is drawn in a different colour and named as an assumption.
 - **The miss is decided before the pellets leave the barrel.** Whether the shot
   was lined up only selects *which* pool of gags it comes from: genuine
   on-target shots get the expensive cartoon-physics saves and score the most,

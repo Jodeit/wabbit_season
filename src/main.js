@@ -5,6 +5,7 @@ import { WebXRBackend } from './ar/webxr.js';
 import { FallbackBackend } from './ar/fallback.js';
 import { CoverSet } from './game/cover.js';
 import { Reticle } from './game/reticle.js';
+import { ScanMesh } from './game/scanmesh.js';
 import { Wabbit } from './game/wabbit.js';
 import { Shotgun } from './game/shotgun.js';
 import { Effects } from './game/effects.js';
@@ -23,6 +24,7 @@ const world = createWorld($('#stage'));
 
 const cover = new CoverSet(world.scene);
 const reticle = new Reticle(world.scene);
+const scanMesh = new ScanMesh(world.scene);
 
 const wabbit = new Wabbit();
 world.scene.add(wabbit.root);
@@ -42,7 +44,7 @@ const effects = new Effects({
   overlay,
 });
 
-const scan = new ScanPhase({ world, backend: null, cover, reticle });
+const scan = new ScanPhase({ world, backend: null, cover, reticle, scanMesh });
 const hunt = new HuntPhase({ world, cover, wabbit, shotgun, effects });
 
 let backend = null;
@@ -69,11 +71,13 @@ async function probeSupport() {
 
   if (hasXR) {
     supportMode = 'webxr';
-    line.textContent = 'Full AR ready — your device can sense real surfaces.';
+    line.textContent = 'Full AR ready — real surface sensing, and the scan will draw what it detects.';
   } else if (hasCamera) {
     supportMode = 'fallback';
+    // Be explicit about depth: iOS devices have LiDAR that the browser cannot
+    // reach, so people reasonably assume the scan is measuring the room.
     line.textContent = isIOS()
-      ? 'iPhone/iPad: Safari has no WebXR yet, so this runs in camera mode — live camera, gyro aiming, estimated surfaces.'
+      ? 'iPhone/iPad: Safari has no WebXR, and LiDAR is not exposed to web browsers — so this runs in camera mode with gyro aiming and estimated surfaces.'
       : 'No WebXR AR here — running in camera mode with estimated surfaces.';
   } else {
     supportMode = 'none';
@@ -289,7 +293,7 @@ show('title');
 window.__THREE = THREE;
 window.__GAGS = GAGS;
 window.WabbitSeason = {
-  world, cover, wabbit, shotgun, hunt, scan, effects,
+  world, cover, wabbit, shotgun, hunt, scan, effects, scanMesh,
   get backend() { return backend; },
   get phase() { return phase; },
   scanBackendHit: () => backend?._estimateHit?.() ?? backend?.lastHit ?? null,

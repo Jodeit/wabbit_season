@@ -3,6 +3,7 @@ import { $, clamp } from '../core/util.js';
 import { sfx } from '../audio/sfx.js';
 import { toast } from '../ui/screens.js';
 import { KINDS } from './cover.js';
+import { ScanMesh } from './scanmesh.js';
 
 const MIN_SPOTS = 2;
 const MAX_SPOTS = 6;
@@ -29,8 +30,9 @@ const SWEEP_BINS = 4;
  * tapping the same couch six times does not fill it.
  */
 export class ScanPhase {
-  constructor({ world, backend, cover, reticle }) {
+  constructor({ world, backend, cover, reticle, scanMesh }) {
     this.world = world;
+    this.scanMesh = scanMesh;
     this.backend = backend;
     this.cover = cover;
     this.reticle = reticle;
@@ -50,6 +52,7 @@ export class ScanPhase {
       undo: $('#btn-scan-undo'),
       kinds: $('#kind-list'),
       kindHint: $('#kind-hint'),
+      readout: $('#scan-readout'),
     };
 
     this.kind = 'surface';
@@ -68,6 +71,8 @@ export class ScanPhase {
     this.samples = 0;
     this.time = 0;
     this.cover.clear();
+    this.scanMesh.clear();
+    this.scanMesh.setVisible(true);
     this.cover.setMarkersVisible(true);
     this.reticle.setVisible(true);
     this.setKind('surface');
@@ -78,6 +83,9 @@ export class ScanPhase {
     this.active = false;
     document.body.classList.remove('scanning');
     this.reticle.setVisible(false);
+    // The captured geometry is scaffolding for placing cover, not scenery --
+    // leaving it up during the hunt clutters the real room.
+    this.scanMesh.setVisible(false);
   }
 
   /** Called every frame while scanning. */
@@ -86,6 +94,18 @@ export class ScanPhase {
     this.time += dt;
     this.reticle.update(info.hit, dt);
 
+    // Real room geometry, where the runtime actually has some.
+    this.scanMesh.syncXRGeometry(info.frame, info.refSpace);
+
+    // Where there is none, paint the surface we are assuming. Done every
+    // frame rather than at the meter's sample rate, so the cloud builds at the
+    // speed the player is actually moving the phone.
+    for (const p of this.backend.probeSpread?.(3) ?? []) {
+      this.scanMesh.addPoint(p.position, p.real);
+    }
+    this.scanMesh.setAssumedFloor(
+      this.cover.floorY, this.world.camera.getWorldPosition(new THREE.Vector3()));
+
     if (info.hit) {
       this.cover.noteSurface(info.hit.position);
 
@@ -93,6 +113,7 @@ export class ScanPhase {
       if (this.time - this.lastSampleAt > 0.12) {
         this.lastSampleAt = this.time;
         this.samples++;
+        this.scanMesh.addPoint(info.hit.position, info.hit.real);
         const dir = this.world.camera.getWorldDirection(new THREE.Vector3());
         const yaw = Math.atan2(dir.x, dir.z);
         const bin = Math.floor(((yaw + Math.PI) / (Math.PI * 2)) * YAW_BINS) % YAW_BINS;
@@ -120,6 +141,10 @@ export class ScanPhase {
       : this.sweepProgress * 0.3 + spotProgress * 0.7;
     const pct = Math.round(clamp(ready, 0, 1) * 100);
     this.els.meter.style.width = `${pct}%`;
+
+    this.els.readout.textContent = this.scanMesh.describe();
+    this.els.readout.classList.toggle('sensed', this.scanMesh.sensed);
+    this.els.readout.classList.toggle('estimated', !this.scanMesh.sensed);
 
     const remaining = MIN_SPOTS - this.cover.count;
     if (remaining > 0) {

@@ -133,10 +133,65 @@ try {
   check('a ~90-degree sweep can still fill the meter', meterPct >= 100, `${meterPct}%`);
   check('start button unlocks', !(await page.isDisabled('#btn-scan-done')));
 
+  console.log('\n• scan readout');
+  const readout = await page.evaluate(() => ({
+    text: document.querySelector('#scan-readout').textContent,
+    cls: document.querySelector('#scan-readout').className,
+    points: window.WabbitSeason.scanMesh.pointCount,
+    visible: window.WabbitSeason.scanMesh.group.visible,
+  }));
+  console.log(`        "${readout.text}"`);
+  check('sweeping accumulates surface points', readout.points > 5, `${readout.points} points`);
+  check('the point cloud is drawn', readout.visible);
+  check('estimated surfaces are reported as estimated, not sensed',
+    /estimated/.test(readout.text) && readout.cls.includes('estimated'), readout.cls);
+
+  // The real-geometry path cannot run in headless Chromium (no XR runtime), so
+  // feed it a synthetic XRFrame shaped like the spec to prove it wires up.
+  const planes = await page.evaluate(() => {
+    const { scanMesh } = window.WabbitSeason;
+    const identity = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    const mkPlane = (z) => ({
+      planeSpace: { id: z },
+      lastChangedTime: 1,
+      polygon: [{x:-1,y:0,z:-1},{x:1,y:0,z:-1},{x:1,y:0,z:1},{x:-1,y:0,z:1}],
+    });
+    const frame = {
+      detectedPlanes: new Set([mkPlane(1), mkPlane(2)]),
+      getPose: () => ({ transform: { matrix: identity } }),
+    };
+    scanMesh.syncXRGeometry(frame, {});
+    return { count: scanMesh.planeCount, source: scanMesh.source, desc: scanMesh.describe() };
+  });
+  console.log(`        "${planes.desc}"`);
+  check('detected planes are drawn as real geometry',
+    planes.count === 2 && planes.source === 'planes', JSON.stringify(planes));
+
+  const meshed = await page.evaluate(() => {
+    const { scanMesh } = window.WabbitSeason;
+    const identity = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    const frame = {
+      detectedMeshes: new Set([{
+        meshSpace: { id: 'm' },
+        lastChangedTime: 1,
+        vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0]),
+        indices: new Uint32Array([0,1,2]),
+      }]),
+      getPose: () => ({ transform: { matrix: identity } }),
+    };
+    scanMesh.syncXRGeometry(frame, {});
+    return { count: scanMesh.planeCount, source: scanMesh.source, desc: scanMesh.describe() };
+  });
+  console.log(`        "${meshed.desc}"`);
+  check('a scene mesh is drawn as a wireframe and reported as meshed',
+    meshed.source === 'mesh' && meshed.count === 1, JSON.stringify(meshed));
+
   console.log('\n• hunt');
   await page.click('#btn-scan-done');
   await page.waitForTimeout(400);
   check('hunt HUD is shown', await page.isVisible('#screen-hunt'));
+  check('the scan overlay is cleared away for the hunt',
+    !(await page.evaluate(() => window.WabbitSeason.scanMesh.group.visible)));
   check('the gun is on screen', await page.evaluate(() => {
     const { shotgun, world } = window.WabbitSeason;
     const T = window.__THREE;

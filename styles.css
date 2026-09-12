@@ -55,6 +55,7 @@ html, body {
 #overlay .screen.bare .scan-bottom,
 #overlay .screen.bare .kind,
 #overlay .screen.bare .btn { pointer-events: auto; }
+#overlay .scan-readout,
 #overlay .hud-top,
 #overlay .hud-bottom,
 #overlay .scan-top,
@@ -184,6 +185,16 @@ h2 { margin: 0 0 10px; font-size: 26px; color: var(--burnt); -webkit-text-stroke
   background: linear-gradient(90deg, var(--leaf), var(--carrot));
   transition: width .25s ease;
 }
+.scan-readout {
+  margin-top: 7px;
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  opacity: .8;
+  font-variant-numeric: tabular-nums;
+}
+.scan-readout.estimated { color: #9fd0ff; }
+.scan-readout.sensed { color: #b6ef86; }
+
 .scan-bottom {
   position: absolute;
   left: 0; right: 0; bottom: 0;
