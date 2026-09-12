@@ -36,10 +36,18 @@ export class FallbackBackend {
     this._floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   }
 
-  /** Must be called from a user gesture on iOS. */
+  /**
+   * Must be called from a user gesture on iOS.
+   *
+   * Order matters here. `DeviceOrientationEvent.requestPermission()` requires
+   * transient user activation, and awaiting `getUserMedia` first spends it on
+   * the camera prompt -- so asking for the camera before the gyroscope loses
+   * head tracking entirely on iOS. The gyroscope is asked for first, while the
+   * tap that started the session is still fresh.
+   */
   async start() {
-    await this._startCamera();
     await this._startOrientation();
+    await this._startCamera();
 
     this.world.camera.position.set(0, this.eyeHeight, 0);
     this._running = true;

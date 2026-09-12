@@ -1,0 +1,44 @@
+name: Deploy to GitHub Pages
+
+# The game is a static site with no build step, so this just uploads the
+# repository as-is. It needs to reach Pages over HTTPS because the camera
+# APIs the game is built on refuse to run in an insecure context.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/webvr-elmer-fudd-game-igl90w
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a run in progress finish rather than cancelling it mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # `enablement: true` turns Pages on for the repo if it is not already,
+      # so this works without anyone visiting the settings page first.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

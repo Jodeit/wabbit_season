@@ -21,9 +21,14 @@ npm start          # http://localhost:8080
 ```
 
 Camera access requires a secure context, so for phone testing either use
-`localhost` via port-forwarding, or host it anywhere with TLS — it is a plain
-static site with no build step, so GitHub Pages, Netlify or `python3 -m
-http.server` behind a tunnel all work as-is.
+`localhost` via port-forwarding, or host it anywhere with TLS.
+
+It is a plain static site with no build step, so it deploys as-is.
+`.github/workflows/pages.yml` publishes it to GitHub Pages on every push to
+the default branch — no build, it just uploads the repository — which is the
+easiest way to get it onto a real phone:
+
+**https://jodeit.github.io/wabbit_season/**
 
 1. **Scan.** Sweep the phone slowly across the room. The meter fills as you
    cover more of it — standing still and tapping the same couch won't do.
