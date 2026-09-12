@@ -185,6 +185,28 @@ export const sfx = {
     burst(0.2, 900, { peak: 0.3, attack: 0.002, decay: 0.22 });
   },
 
+  /** Slow hinge creak, for the door entrance. */
+  creak() {
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    const t = ctx.currentTime;
+    osc.frequency.setValueAtTime(180, t);
+    // Wobble upward in uneven steps -- a smooth glide sounds like a siren,
+    // whereas a hinge sticks and slips.
+    for (let i = 1; i <= 6; i++) {
+      osc.frequency.setValueAtTime(180 + i * 55 + (i % 2 ? 30 : 0), t + i * 0.09);
+    }
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 900;
+    filt.Q.value = 6;
+    osc.connect(filt);
+    const e = env(filt, { peak: 0.16, attack: 0.03, decay: 0.6 });
+    osc.start(e.start);
+    osc.stop(e.end + 0.05);
+  },
+
   /** Little sparkle when a hiding spot is marked. */
   mark() {
     tone('triangle', 660, { peak: 0.18, attack: 0.004, decay: 0.1 });

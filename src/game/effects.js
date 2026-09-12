@@ -278,6 +278,61 @@ export class Effects {
       });
   }
 
+  /**
+   * A door that swings open, holds while he is out, then closes behind him.
+   * Hinged on the opposite side to the one he leans out from, so the door
+   * never swings through the wabbit.
+   */
+  showDoor(spot, holdSeconds = 3) {
+    const { scene, camera } = this.ctx;
+    const width = 0.78;
+    const height = 1.98;
+    const hingeSign = -(spot.sideSign ?? 1);
+
+    const hinge = new THREE.Group();
+    hinge.position.copy(spot.position);
+    hinge.position.y = this.ctx.cover?.floorY ?? 0;
+    // Stand the hinge up facing the player, then step it out to the door edge.
+    const toCamera = camera.getWorldPosition(new THREE.Vector3()).sub(hinge.position);
+    hinge.rotation.y = Math.atan2(toCamera.x, toCamera.z);
+    hinge.translateX(hingeSign * (width / 2));
+
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(width, height, 0.04),
+      new THREE.MeshStandardMaterial({ color: 0xb9a184, roughness: 0.85, metalness: 0 })
+    );
+    panel.position.set(-hingeSign * (width / 2), height / 2, 0);
+    hinge.add(panel);
+
+    const knob = new THREE.Mesh(
+      new THREE.SphereGeometry(0.032, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.3, metalness: 0.9 })
+    );
+    knob.position.set(-hingeSign * (width * 0.82), height * 0.46, 0.04);
+    hinge.add(knob);
+
+    scene.add(hinge);
+
+    const openFor = Math.max(1.2, holdSeconds);
+    const total = openFor + 1.2;
+    const swing = (Math.PI / 2) * 1.05 * hingeSign;
+
+    const baseYaw = hinge.rotation.y;
+
+    this._addTemporary(hinge, total, (obj, k) => {
+      const t = k * total;
+      let amount;
+      if (t < 0.6) amount = t / 0.6;                       // swing open
+      else if (t < total - 0.6) amount = 1;                // held open
+      else amount = Math.max(0, (total - t) / 0.6);        // swing shut
+      obj.rotation.y = baseYaw + swing * amount;
+    }, () => {
+      scene.remove(hinge);
+      hinge.traverse((o) => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+    });
+    return hinge;
+  }
+
   /* ---------------- plumbing ---------------- */
 
   _addTemporary(object, life, onUpdate, onDone) {

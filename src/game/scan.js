@@ -2,10 +2,22 @@ import * as THREE from 'three';
 import { $, clamp } from '../core/util.js';
 import { sfx } from '../audio/sfx.js';
 import { toast } from '../ui/screens.js';
+import { KINDS } from './cover.js';
 
 const MIN_SPOTS = 2;
 const MAX_SPOTS = 6;
 const YAW_BINS = 16;
+/*
+ * How much of a turn counts as a finished sweep, in yaw bins (each bin is
+ * 360/16 = 22.5 degrees). Four bins is about 90 degrees.
+ *
+ * This used to demand nine bins -- roughly 200 degrees -- which quietly
+ * assumed the player was standing in the middle of a room and free to spin
+ * around. Someone playing propped up in bed can comfortably sweep about a
+ * quarter turn, so the meter could never fill and looked like a hard gate
+ * even though the start button was already unlocked.
+ */
+const SWEEP_BINS = 4;
 
 /**
  * The room-scan phase.
@@ -36,7 +48,14 @@ export class ScanPhase {
       list: $('#mark-list'),
       done: $('#btn-scan-done'),
       undo: $('#btn-scan-undo'),
+      kinds: $('#kind-list'),
+      kindHint: $('#kind-hint'),
     };
+
+    this.kind = 'surface';
+    for (const btn of this.els.kinds.querySelectorAll('.kind')) {
+      btn.addEventListener('click', () => this.setKind(btn.dataset.kind));
+    }
 
     this.els.done.addEventListener('click', () => this.finish());
     this.els.undo.addEventListener('click', () => this.undo());
@@ -44,17 +63,20 @@ export class ScanPhase {
 
   start() {
     this.active = true;
+    document.body.classList.add('scanning');
     this.bins.clear();
     this.samples = 0;
     this.time = 0;
     this.cover.clear();
     this.cover.setMarkersVisible(true);
     this.reticle.setVisible(true);
+    this.setKind('surface');
     this._renderMarks();
   }
 
   stop() {
     this.active = false;
+    document.body.classList.remove('scanning');
     this.reticle.setVisible(false);
   }
 
@@ -82,14 +104,21 @@ export class ScanPhase {
   }
 
   get sweepProgress() {
-    const coverage = this.bins.size / (YAW_BINS * 0.55);   // ~9 bins is a full sweep
-    const density = this.samples / 90;
+    const coverage = this.bins.size / SWEEP_BINS;
+    const density = this.samples / 45;
     return clamp(Math.min(coverage, 1) * 0.7 + Math.min(density, 1) * 0.3, 0, 1);
   }
 
   _updateMeter() {
     const spotProgress = clamp(this.cover.count / MIN_SPOTS, 0, 1);
-    const pct = Math.round((this.sweepProgress * 0.5 + spotProgress * 0.5) * 100);
+    // The meter means "ready to hunt", so it must read full at exactly the
+    // moment the start button unlocks. Blending the sweep in at the end would
+    // leave it stuck in the nineties, which is the same lie in a smaller size:
+    // a bar that cannot fill reads as a gate no matter how close it gets.
+    const ready = spotProgress >= 1
+      ? 1
+      : this.sweepProgress * 0.3 + spotProgress * 0.7;
+    const pct = Math.round(clamp(ready, 0, 1) * 100);
     this.els.meter.style.width = `${pct}%`;
 
     const remaining = MIN_SPOTS - this.cover.count;
@@ -108,10 +137,20 @@ export class ScanPhase {
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
     } else if (this.sweepProgress > 0.45) {
-      this.els.sub.textContent = 'Now tap the reticle on something he could duck behind.';
+      this.els.sub.textContent = 'Now pick a kind below and tap to mark it.';
     } else {
-      this.els.sub.textContent = 'Sweep slowly. Look at your floor and furniture.';
+      this.els.sub.textContent = 'Sweep slowly across whatever you can see.';
     }
+  }
+
+  /** Choose what the next tap marks. */
+  setKind(kind) {
+    if (!KINDS[kind]) return;
+    this.kind = kind;
+    for (const btn of this.els.kinds.querySelectorAll('.kind')) {
+      btn.classList.toggle('is-on', btn.dataset.kind === kind);
+    }
+    this.els.kindHint.textContent = KINDS[kind].hint;
   }
 
   /** Player tapped the screen (or squeezed the trigger) to mark cover. */
@@ -126,10 +165,9 @@ export class ScanPhase {
       toast('Six hiding spots is already unsporting.');
       return;
     }
-    const spot = this.cover.add(hit.position, hit.normal);
+    this.cover.add(hit.position, hit.normal, this.kind);
     sfx.mark();
     this._renderMarks();
-    toast(`Marked: ${spot.label}`, 1600);
   }
 
   undo() {

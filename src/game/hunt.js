@@ -164,14 +164,31 @@ export class HuntPhase {
     this.currentSpot = spot;
 
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
-    this.wabbit.placeAt(spot.position, camPos);
+    this.wabbit.placeAt(spot.position, camPos, spot.kind, spot.sideSign);
     this.wabbit.setState(Math.random() < 0.35 ? 'peek' : 'taunt');
-    sfx.pop();
-    buzz(18);
 
     this.encounters++;
     this.state = 'up';
     this.stateTimer = rand(2.6, 4.6);
+
+    if (spot.kind === 'door') {
+      // The door has to be open before he can stroll through it, so the
+      // entrance is delayed to sit behind the swing.
+      this.fx.showDoor(spot, this.stateTimer);
+      sfx.creak();
+      this.wabbit.setEmerge(0, true);
+      setTimeout(() => {
+        if (this.active && this.state === 'up') {
+          this.wabbit.setEmerge(1);
+          sfx.pop();
+          buzz(18);
+        }
+      }, 620);
+    } else {
+      sfx.pop();
+      buzz(18);
+    }
+
     showTaunt(randomTaunt(), 2600);
   }
 
@@ -255,7 +272,7 @@ export class HuntPhase {
     if (!spot) return;
     this.currentSpot = spot;
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
-    this.wabbit.placeAt(spot.position, camPos);
+    this.wabbit.placeAt(spot.position, camPos, spot.kind, spot.sideSign);
     this.wabbit.setState('taunt');
     this.state = 'up';
     this.stateTimer = Math.max(this.stateTimer, 3.0);

@@ -9,6 +9,37 @@ import { pick } from '../core/util.js';
  * what lets the game say "behind the kitchen island" instead of "at anchor 3".
  */
 
+/**
+ * How the wabbit gets into view at a spot. Real rooms are mostly walls and
+ * flat-to-the-wall furniture, so "pop up from behind a waist-high surface" on
+ * its own leaves a lot of rooms with nowhere to hide.
+ */
+export const KINDS = {
+  surface: {
+    id: 'surface',
+    name: 'Pop up ovew',
+    hint: 'A counter, an island, the end of a bed — he rises from behind it.',
+    colour: 0x5f8f3a,
+  },
+  corner: {
+    id: 'corner',
+    name: 'Peew awound',
+    hint: 'A corner, a doorframe, the edge of a wardrobe — he leans out sideways.',
+    colour: 0x3a7f8f,
+  },
+  door: {
+    id: 'door',
+    name: 'Open a doow',
+    hint: 'A closed door — he swings it open and strolls out.',
+    colour: 0x8f5f3a,
+  },
+};
+
+const KIND_LABELS = {
+  corner: ['the cornew', 'the end of the bed', 'the edge of the wardwobe', 'the doowfwame'],
+  door: ['the doow', 'the closet doow', 'the bathwoom doow'],
+};
+
 const HEIGHT_LABELS = [
   { max: 0.22, names: ['the floow', 'the rug', 'the skirting board'] },
   { max: 0.52, names: ['the coffee table', 'the end of the bed', 'the ottoman'] },
@@ -17,7 +48,8 @@ const HEIGHT_LABELS = [
   { max: Infinity, names: ['the shelf', 'the top of the cabinets', 'the doorway'] },
 ];
 
-export function labelForHeight(y, floorY = 0) {
+export function labelForSpot(kind, y, floorY = 0) {
+  if (KIND_LABELS[kind]) return pick(KIND_LABELS[kind]);
   const h = y - floorY;
   const band = HEIGHT_LABELS.find((b) => h < b.max) ?? HEIGHT_LABELS.at(-1);
   return pick(band.names);
@@ -25,13 +57,17 @@ export function labelForHeight(y, floorY = 0) {
 
 /** A single marked hiding place. */
 export class CoverSpot {
-  constructor(position, normal, label) {
+  constructor(position, normal, label, kind = 'surface') {
     this.position = position.clone();
     this.normal = normal.clone().normalize();
     this.label = label;
+    this.kind = kind;
+    // Which way he slides out from an edge. Picked once and kept, so a given
+    // corner always behaves the same way and the player can learn it.
+    this.sideSign = Math.random() < 0.5 ? -1 : 1;
     this.lastUsed = -Infinity;
     this.useCount = 0;
-    this.marker = buildMarker();
+    this.marker = buildMarker(KINDS[kind]?.colour ?? 0x5f8f3a);
     this.marker.position.copy(this.position);
 
     // Lay the ring flat on horizontal surfaces, flush on vertical ones.
@@ -55,12 +91,12 @@ export class CoverSpot {
   }
 }
 
-function buildMarker() {
+function buildMarker(colour) {
   const group = new THREE.Group();
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.13, 0.17, 28),
     new THREE.MeshBasicMaterial({
-      color: 0x5f8f3a, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false,
+      color: colour, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false,
     })
   );
   group.add(ring);
@@ -96,8 +132,9 @@ export class CoverSet {
     if (point.y < this.floorY) this.floorY = point.y;
   }
 
-  add(position, normal) {
-    const spot = new CoverSpot(position, normal, labelForHeight(position.y, this.floorY));
+  add(position, normal, kind = 'surface') {
+    const spot = new CoverSpot(
+      position, normal, labelForSpot(kind, position.y, this.floorY), kind);
     this.spots.push(spot);
     this.scene.add(spot.marker);
     return spot;

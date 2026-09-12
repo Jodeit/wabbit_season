@@ -30,11 +30,21 @@ easiest way to get it onto a real phone:
 
 **https://jodeit.github.io/wabbit_season/**
 
-1. **Scan.** Sweep the phone slowly across the room. The meter fills as you
-   cover more of it — standing still and tapping the same couch won't do.
-2. **Mark cover.** Tap the reticle on a kitchen island, the end of a bed, a
-   couch. Each mark is named by how high it is off the floor.
-3. **Hunt.** He rises from behind your real furniture, preferring spots you are
+1. **Scan.** Sweep the phone slowly across whatever you can see. About a
+   quarter turn is enough — you do not need to stand up or spin around.
+2. **Mark cover.** Pick how he should use the spot, then tap the reticle on it:
+
+   | Kind | For | What he does |
+   |---|---|---|
+   | **Pop up ovew** | A counter, an island, the end of a bed | Rises from behind it |
+   | **Peew awound** | A corner, a doorframe, the edge of a wardrobe | Leans out sideways |
+   | **Open a doow** | A closed door | Swings it open and strolls out |
+
+   Most real rooms have their furniture pushed against the walls, so
+   "pop up from behind a waist-high surface" on its own leaves a lot of rooms —
+   bedrooms especially — with nowhere for him to hide. Corners and doors are
+   what make it playable from a bed or an armchair.
+3. **Hunt.** He appears at your real furniture, preferring spots you are
    *not* currently looking at.
 4. **Aim.** Hold anywhere to shoulder the gun and look down the rib between the
    barrels; the brass bead is your sight. Release to fire.
@@ -109,6 +119,11 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **The scan never asks for more of a turn than a seated player has.** The
+  sweep meter saturates at about 90°, and reads full at exactly the moment the
+  start button unlocks. An earlier version wanted ~200° and stalled in the
+  nineties, which reads as a gate that never opens even when nothing is
+  actually blocked.
 - **The miss is decided before the pellets leave the barrel.** Whether the shot
   was lined up only selects *which* pool of gags it comes from: genuine
   on-target shots get the expensive cartoon-physics saves and score the most,

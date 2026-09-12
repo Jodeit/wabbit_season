@@ -64,6 +64,8 @@ export class Wabbit {
     this.squash = 1;
     this.chewing = false;
     this.visibleRadius = 0.22;
+    this.emergeMode = 'surface';   // surface | corner | door
+    this.sideSign = 1;
 
     this.setEmerge(0, true);
   }
@@ -196,11 +198,19 @@ export class Wabbit {
   /* placement                                                          */
   /* ----------------------------------------------------------------- */
 
-  /** Drop him at a cover spot, hidden, facing the player. */
-  placeAt(position, faceTowards) {
+  /**
+   * Drop him at a cover spot, hidden, facing the player.
+   *
+   * @param {string} mode  how he enters view: 'surface' rises from behind,
+   *   'corner' and 'door' lean out sideways past an edge.
+   * @param {number} sideSign  which side he leans out from (-1 or 1).
+   */
+  placeAt(position, faceTowards, mode = 'surface', sideSign = 1) {
     this.root.position.copy(position);
     const look = new THREE.Vector3(faceTowards.x, position.y, faceTowards.z);
     this.root.lookAt(look);
+    this.emergeMode = mode;
+    this.sideSign = sideSign;
     this.setEmerge(0, true);
   }
 
@@ -213,10 +223,23 @@ export class Wabbit {
   }
 
   _applyEmerge() {
-    // Sink below the cover plane and clip with a scale-down so he reads as
-    // "ducking behind" rather than "sinking into the floor".
     const e = this.emergeAmount;
-    this.body.position.y = lerp(-0.62, 0, e);
+
+    if (this.emergeMode === 'surface') {
+      // Sink below the cover plane so he reads as "ducking behind" it.
+      this.body.position.set(0, lerp(-0.62, 0, e), 0);
+      this.body.rotation.y = 0;
+      this._peekLean = 0;
+    } else {
+      // Edges and doorways: slide out sideways past the obstruction and lean
+      // his weight around it, which is how you actually peer around a corner.
+      const hidden = 0.52 * this.sideSign;
+      this.body.position.set(lerp(hidden, 0, e), 0, lerp(-0.1, 0, e));
+      // Tip the body back toward cover so he looks ready to snap out of sight.
+      this._peekLean = (1 - e) * 0.5 * this.sideSign;
+      this.body.rotation.y = (1 - e) * 0.45 * this.sideSign;
+    }
+
     this.body.visible = e > 0.015;
     this.root.visible = this.body.visible;
   }
@@ -301,8 +324,10 @@ export class Wabbit {
     // Lean is the dodge; it springs back on its own.
     this.targetLean = damp(this.targetLean, 0, 5, dt);
     this.lean = damp(this.lean, this.targetLean, 16, dt);
-    this.body.rotation.z = this.lean * 0.9;
-    this.body.position.x = this.lean * 0.14;
+    // `_applyEmerge` has already set the base pose for this frame, so the
+    // dodge is added on top of it rather than replacing it.
+    this.body.rotation.z = this.lean * 0.9 + (this._peekLean ?? 0);
+    this.body.position.x += this.lean * 0.14;
 
     this.squash = damp(this.squash, 1, 7, dt);
     this.body.scale.set(1 / this.squash, this.squash, 1 / this.squash);

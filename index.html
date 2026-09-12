@@ -68,6 +68,12 @@
         <div class="meter"><i id="scan-meter"></i></div>
       </div>
       <div class="scan-bottom">
+        <div class="kinds" id="kind-list" role="group" aria-label="What kind of hiding spot">
+          <button class="kind is-on" data-kind="surface">Pop up ovew</button>
+          <button class="kind" data-kind="corner">Peew awound</button>
+          <button class="kind" data-kind="door">Open a doow</button>
+        </div>
+        <div class="kind-hint" id="kind-hint"></div>
         <div class="marks" id="mark-list"></div>
         <button class="btn primary" id="btn-scan-done" disabled>Mark 1 more hiding spot</button>
         <button class="btn ghost small" id="btn-scan-undo">Undo last mark</button>

@@ -96,15 +96,20 @@ try {
   check('shallow look-down lands at furniture height',
     heights['-12'] > 0.6 && heights['-12'] < 1.3, `y=${heights['-12']}m`);
 
-  console.log('\n• marking cover');
+  console.log('\n• marking cover (constrained sweep, as if lying in bed)');
+  // Deliberately sweep only ~90 degrees. A player propped up in bed cannot
+  // spin around, and the scan must still be completable from that arc.
+  const ARC = Math.PI / 2;
+  const kinds = ['surface', 'corner', 'door'];
   for (let i = 0; i < 12; i++) {
     await page.evaluate((y) => {
       const cam = window.WabbitSeason.world.camera;
       cam.rotation.set(-0.35, y, 0, 'YXZ');
       cam.updateMatrixWorld(true);
-    }, (i / 12) * Math.PI * 2);
+    }, -ARC / 2 + (i / 11) * ARC);
     await page.waitForTimeout(110);
     if (i % 4 === 0) {
+      await page.click(`.kind[data-kind="${kinds[i / 4]}"]`);
       await page.mouse.move(195, 500);
       await page.mouse.down();
       await page.waitForTimeout(60);
@@ -116,8 +121,16 @@ try {
   check('taps on the canvas mark cover spots', marked >= 2, `${marked} spots`);
   check('spots are given furniture names',
     await page.evaluate(() => window.WabbitSeason.cover.spots.every((s) => !!s.label)));
-  check('sweeping fills the scan meter',
-    parseInt(await page.evaluate(() => document.querySelector('#scan-meter').style.width), 10) > 50);
+
+  const spotKinds = await page.evaluate(() =>
+    window.WabbitSeason.cover.spots.map((s) => `${s.kind}:${s.label}`));
+  console.log(`        ${spotKinds.join('  |  ')}`);
+  check('all three cover kinds can be marked',
+    new Set(spotKinds.map((k) => k.split(':')[0])).size === 3);
+
+  const meterPct = parseInt(
+    await page.evaluate(() => document.querySelector('#scan-meter').style.width), 10);
+  check('a ~90-degree sweep can still fill the meter', meterPct >= 100, `${meterPct}%`);
   check('start button unlocks', !(await page.isDisabled('#btn-scan-done')));
 
   console.log('\n• hunt');
@@ -136,6 +149,47 @@ try {
   await page.evaluate(() => { window.WabbitSeason.hunt.stateTimer = 0.0001; });
   await page.waitForTimeout(600);
   check('the wabbit shows up', await page.evaluate(() => window.WabbitSeason.hunt.state === 'up'));
+
+  // Each kind has to actually move him into view, by its own route.
+  for (const kind of kinds) {
+    const emerged = await page.evaluate(async (k) => {
+      const { hunt, wabbit, cover, world } = window.WabbitSeason;
+      const spot = cover.spots.find((s) => s.kind === k);
+      if (!spot) return { ok: false, why: 'no spot' };
+      hunt.currentSpot = spot;
+      wabbit.placeAt(spot.position, world.camera.getWorldPosition(new window.__THREE.Vector3()),
+        spot.kind, spot.sideSign);
+      wabbit.setState('taunt');
+      wabbit.setEmerge(1, true);
+      const p = wabbit.body.position;
+      return { ok: true, x: +p.x.toFixed(2), y: +p.y.toFixed(2), visible: wabbit.body.visible };
+    }, kind);
+    check(`'${kind}' brings him fully into view`,
+      emerged.ok && emerged.visible && Math.abs(emerged.x) < 0.05 && Math.abs(emerged.y) < 0.05,
+      JSON.stringify(emerged));
+
+    const hidden = await page.evaluate((k) => {
+      const { wabbit, cover, world } = window.WabbitSeason;
+      const spot = cover.spots.find((s) => s.kind === k);
+      wabbit.placeAt(spot.position, world.camera.getWorldPosition(new window.__THREE.Vector3()),
+        spot.kind, spot.sideSign);
+      wabbit.setEmerge(0, true);
+      const p = wabbit.body.position;
+      // Hidden means displaced out of sight: down for a surface, sideways
+      // for an edge or a doorway.
+      return { offset: +Math.max(Math.abs(p.x), Math.abs(p.y)).toFixed(2), visible: wabbit.body.visible };
+    }, kind);
+    check(`'${kind}' hides him out of sight`,
+      !hidden.visible && hidden.offset > 0.4, JSON.stringify(hidden));
+  }
+
+  check('a door spot swings a door open', await page.evaluate(async () => {
+    const { hunt, cover, effects } = window.WabbitSeason;
+    const spot = cover.spots.find((s) => s.kind === 'door');
+    const before = effects.temporary.length;
+    hunt.fx.showDoor(spot, 2);
+    return effects.temporary.length === before + 1;
+  }));
 
   await page.evaluate(() => {
     const { world, wabbit } = window.WabbitSeason;
@@ -178,6 +232,13 @@ try {
   for (const g of gags) if (!g.ok) console.log(`        ${g.id}: ${g.error}`);
   check(`all ${gags.length} gags run without throwing`, gags.every((g) => g.ok));
 
+  // Park the state machine so it cannot spawn a fresh encounter (and its
+  // door) while we are waiting for the gag effects to expire.
+  await page.evaluate(() => {
+    const h = window.WabbitSeason.hunt;
+    h.state = 'waiting';
+    h.stateTimer = Number.MAX_SAFE_INTEGER;
+  });
   await page.waitForTimeout(4000);
   const leaks = await page.evaluate(() => ({
     particles: window.WabbitSeason.effects.particles.length,
