@@ -85,7 +85,7 @@ that is:
 |---|---|---|
 | `mesh` — scene reconstruction (`XRMesh`) | green wireframe | Quest 3 and similar |
 | `planes` — detected planes (`XRPlane`) | green boundary polygons | Android Chrome |
-| `points` — sensed surface samples | green patches lying in the surface | hit-test-only runtimes (incl. the iOS XR Viewer) |
+| `points` — sensed surface samples | a triangulated mesh with visible edges | hit-test-only runtimes (incl. the iOS XR Viewer) |
 | *(nothing sensed)* | assumed floor grid only | iOS Safari |
 
 **No LiDAR in Safari.** iPhones and iPads have a depth sensor, but Safari does
@@ -98,11 +98,34 @@ nothing in it. What is drawn instead is the grid on the floor plane the game
 assumes, which is the actual model, labelled "No depth sensor — surfaces are
 estimated".
 
-Surface patches only ever appear where a device really sensed something.
-They are drawn lying *in* the surface, oriented to its normal, rather than as
-screen-facing dots: dots tell you a ray hit something, overlapping patches
-show the shape of what it hit, and a swept wall fills in as a sheet. The
-readout gives the area covered rather than a sample count.
+Surface only ever appears where a device really sensed something, and it is
+drawn as a connected mesh rather than loose marks. Samples are grouped by which
+way they face and how far along that direction they sit, and each group is
+triangulated across its own 2D grid — neighbouring cells become quads, missing
+cells leave a hole, which is the honest depiction of a part of the room that was
+never swept. There is no volume to march cubes through here: hit-test gives
+points on surfaces, not an inside and an outside, but a surface with a known
+normal is locally a height field, which is enough.
+
+That mesh is then handed straight to the occluder, so what hides the wabbit is
+exactly what the player was shown.
+
+### Can Safari be given real AR?
+
+Not by this page, and not by any page. `immersive-ar` does not exist in
+Safari, and it cannot be polyfilled: the tracking has to come from ARKit, and
+a web page has no access to it — no depth map, no scene reconstruction, no
+world-tracking pose. A polyfill can supply the *API shape*, but there is
+nothing underneath it to supply the data. The only browser-side alternative is
+to implement visual-inertial tracking from scratch over `getUserMedia` frames,
+which is what the commercial WebAR SDKs do, and is a SLAM system rather than a
+feature.
+
+What can be done is hand the same URL to a browser that *does* have ARKit. The
+title screen offers exactly that on iOS: an **Open in XR Viewer** button that
+links to `wxrv://<this page>`. The iQ3Connect XR Viewer registers that scheme
+and reopens it as `https://`, so it is the same game at the same link, with
+real hit-testing.
 
 ### Getting real AR on an iPhone
 
@@ -160,6 +183,7 @@ src/
     reticle.js         placement reticle
     scanmesh.js        scan readout: real mesh/planes, or the assumed surface
     detect.js          finds corners, wall edges and furniture in the scan
+    surface.js         triangulates sensed samples into a connected mesh
     occlusion.js       depth-only geometry, so real surfaces hide him
   audio/sfx.js         procedural sound board
   ui/screens.js        screen switching and HUD banners
@@ -178,16 +202,13 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
-- **Occlusion is built from observed surface, never from a fitted shape.**
-  Fitting a rectangle around each cluster of samples is cheap and wrong: a
-  bounding box spans everything between its corners, including the parts of the
-  room nothing was sensed on, and the result is a phantom sheet slicing the
-  wabbit in half against a bare wall. The occluder is now one small depth-only
-  quad per observed cell — it hides him where the room was genuinely seen and
-  nowhere else. Gaps where the scan is thin are honest; better a wabbit who
-  fails to hide than one sawn in half by geometry that does not exist. Each
-  quad is pushed a couple of centimetres back along its own normal, so a
-  surface never clips whatever is resting on it.
+- **Occlusion is the scan mesh itself, never a fitted shape.** Fitting a
+  rectangle around each cluster of samples is cheap and wrong: a bounding box
+  spans everything between its corners, including the parts of the room nothing
+  was sensed on, and the result is a phantom sheet slicing the wabbit in half
+  against a bare wall. Occluding per observed cell fixed that but was seamy.
+  Now the triangulated surface is shared directly with the occluder, so the two
+  can never disagree about where the room is.
 - **He casts a contact shadow.** Without one he reads as a sticker no matter
   how correct his position is — a shadow is most of what tells the eye that
   something rests on a surface rather than hovering near it.

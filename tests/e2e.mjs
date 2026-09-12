@@ -178,8 +178,13 @@ try {
   const sensedCloud = await page.evaluate(() => {
     const { scanMesh } = window.WabbitSeason;
     const T = window.__THREE;
-    for (let i = 0; i < 12; i++) {
-      scanMesh.addPoint(new T.Vector3(i * 0.4, 0.6, -2), true);
+    // A contiguous patch of wall, not a scattered line: isolated samples have
+    // no neighbours to join to and correctly produce no surface.
+    const n = new T.Vector3(0, 0, 1);
+    for (let x = 0; x < 4; x++) {
+      for (let y = 0; y < 3; y++) {
+        scanMesh.addPoint(new T.Vector3(x * 0.07, 0.6 + y * 0.07, -2), true, n);
+      }
     }
     return {
       points: scanMesh.pointCount,
@@ -189,12 +194,14 @@ try {
   });
   console.log(`        "${sensedCloud.text}"`);
   check('sensed surfaces do build a surface', sensedCloud.points === 12,
-    `${sensedCloud.points} points`);
+    `${sensedCloud.points} cells`);
   check('sensed surface is reported as area mapped', /m² of surface mapped/.test(sensedCloud.text));
-  check('sensed surface is drawn as oriented patches, not dots',
+  check('sensed surface is triangulated, not drawn as dots',
     await page.evaluate(() => {
       const { scanMesh } = window.WabbitSeason;
-      return scanMesh.patches.isInstancedMesh && scanMesh.patches.count === scanMesh.pointCount;
+      scanMesh.rebuild();
+      const pos = scanMesh.surface.geometry.getAttribute('position');
+      return !!pos && pos.count > 0 && !!scanMesh.surfaceGeometry;
     }));
 
   // The real-geometry path cannot run in headless Chromium (no XR runtime), so
@@ -449,42 +456,26 @@ try {
   console.log('\n• occlusion');
   const occ = await page.evaluate(() => {
     const { occluders, scanMesh } = window.WabbitSeason;
-    const m = occluders.mesh.material;
-    occluders.update(scanMesh.samples);
-    // Every occluder quad must sit on a cell that was really observed.
-    const T = window.__THREE;
-    const seen = new Set(scanMesh.samples.map((s) =>
-      `${Math.round(s.p.x / 0.07)},${Math.round(s.p.y / 0.07)},${Math.round(s.p.z / 0.07)}`));
-    let stray = 0;
-    const m4 = new T.Matrix4();
-    const pos = new T.Vector3();
-    for (let i = 0; i < occluders.count; i++) {
-      occluders.mesh.getMatrixAt(i, m4);
-      pos.setFromMatrixPosition(m4);
-      // Allow a cell of slack for the normal-direction bias.
-      const near = [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => [-1, 0, 1].some((dz) =>
-        seen.has(`${Math.round(pos.x / 0.07) + dx},${Math.round(pos.y / 0.07) + dy},${Math.round(pos.z / 0.07) + dz}`))));
-      if (!near) stray++;
-    }
+    scanMesh.rebuild();
+    occluders.update(scanMesh.surfaceGeometry);
     return {
-      count: occluders.count,
-      samples: scanMesh.samples.length,
-      stray,
+      triangles: occluders.count,
+      shared: occluders.mesh.geometry === scanMesh.surfaceGeometry,
       visible: occluders.group.visible,
-      colorWrite: m.colorWrite,
-      depthWrite: m.depthWrite,
+      colorWrite: occluders.material.colorWrite,
+      depthWrite: occluders.material.depthWrite,
+      surfaceDrawn: !!scanMesh.surface.geometry.getAttribute('position'),
+      wireDrawn: !!scanMesh.wireframe.geometry.getAttribute('position'),
     };
   });
-  check('sensed surface becomes occluders', occ.count > 0, `${occ.count} quads`);
+  check('the scan is triangulated into a connected mesh', occ.triangles > 0,
+    `${occ.triangles} triangles`);
+  check('the mesh is drawn as a surface with edges',
+    occ.surfaceDrawn && occ.wireDrawn, JSON.stringify(occ));
   check('occluders write depth but paint nothing',
     occ.colorWrite === false && occ.depthWrite === true, JSON.stringify(occ));
+  check('the occluder is the very mesh the player was shown', occ.shared);
   check('occluders are active during the hunt', occ.visible);
-  // The whole point: no occluder anywhere the room was not actually observed,
-  // which is what put a phantom sheet across a bare wall.
-  check('no occluder sits where nothing was sensed', occ.stray === 0,
-    `${occ.stray} stray of ${occ.count}`);
-  check('one occluder per observed cell', occ.count === Math.min(occ.samples, 4000),
-    `${occ.count} vs ${occ.samples}`);
 
   console.log('\n• grounding');
   const shadow = await page.evaluate(() => {

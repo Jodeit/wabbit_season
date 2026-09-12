@@ -160,6 +160,7 @@ h2 { margin: 0 0 10px; font-size: 26px; color: var(--burnt); -webkit-text-stroke
 .btn:active { transform: translateY(2px) scale(.99); }
 .btn.primary { background: var(--carrot); color: #21150a; box-shadow: 0 5px 0 var(--ink); }
 .btn.ghost { background: transparent; color: var(--ink); box-shadow: none; }
+a.btn { text-decoration: none; text-align: center; box-sizing: border-box; }
 .btn.small { padding: 8px 14px; font-size: 14px; }
 .btn.tiny { padding: 7px 12px; font-size: 13px; width: auto; }
 .btn[disabled] { opacity: .5; filter: grayscale(.6); cursor: default; }

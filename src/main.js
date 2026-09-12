@@ -82,12 +82,35 @@ async function probeSupport() {
     line.textContent = isIOS()
       ? 'iPhone/iPad: Safari has no WebXR, and LiDAR is not exposed to web browsers — so this runs in camera mode with gyro aiming and estimated surfaces.'
       : 'No WebXR AR here — running in camera mode with estimated surfaces.';
+    if (isIOS()) offerXRViewer();
   } else {
     supportMode = 'none';
     line.textContent = 'No AR and no camera available on this device.';
     line.classList.add('warn');
     $('#btn-start').disabled = true;
   }
+}
+
+/**
+ * On iOS, offer a one-tap jump into a WebXR browser.
+ *
+ * Safari cannot be talked into real AR — there is no immersive-ar session and
+ * no way to polyfill one, because the tracking has to come from ARKit and the
+ * page has no access to it. What *can* be done is hand the same URL to a
+ * browser that does: the iQ3Connect XR Viewer (a fork of Mozilla's WebXR
+ * Viewer) registers the `wxrv://` scheme and reopens `https://` + whatever
+ * follows it. Same game, same link, real hit-testing.
+ */
+function offerXRViewer() {
+  const link = $('#btn-xrviewer');
+  if (!link) return;
+  link.href = `wxrv://${location.host}${location.pathname}${location.search}`;
+  link.hidden = false;
+  $('#support-line').insertAdjacentHTML('afterend',
+    '<p class="support">For real surface sensing on iPhone, open this page in a WebXR '
+    + 'browser such as the <b>iQ3Connect XR Viewer</b> — it exposes ARKit, so the scan '
+    + 'senses your actual walls and furniture. The button above jumps straight there '
+    + 'if it is installed.</p>');
 }
 
 /* ------------------------------------------------------------------ */

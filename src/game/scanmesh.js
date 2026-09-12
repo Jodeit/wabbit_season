@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildSurfaceGeometry } from './surface.js';
 
 /**
  * Visualisation of what the device has actually understood about the room.
@@ -18,7 +19,6 @@ import * as THREE from 'three';
 
 const MAX_POINTS = 4000;
 const CELL = 0.07;          // metres; one patch per cell, so they tile
-const PATCH = 0.105;        // slightly wider than a cell, so patches overlap
 
 const SENSED = new THREE.Color(0x9fe870);
 const UP_FALLBACK = new THREE.Vector3(0, 1, 0);
@@ -29,36 +29,41 @@ export class ScanMesh {
     scene.add(this.group);
 
     // --- sampled surface ------------------------------------------------
-    // Drawn as small patches lying *in* each sensed surface, oriented to its
-    // normal, rather than screen-facing dots. Dots tell you a ray hit
-    // something; overlapping patches show you the shape of the thing it hit,
-    // and a swept wall fills in as a continuous sheet. This is as close to a
-    // mesh as hit-test data honestly gets -- the runtimes that do real
-    // reconstruction are handled separately, above.
-    this.patches = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(PATCH, PATCH),
+    // Drawn as a connected mesh rather than loose patches: a surface with
+    // visible edges is what makes a scan look like the device understands the
+    // room, and unlike separate patches it can also be handed straight to the
+    // occluder, seams and all gone.
+    this.surface = new THREE.Mesh(
+      new THREE.BufferGeometry(),
       new THREE.MeshBasicMaterial({
         color: SENSED,
         transparent: true,
-        opacity: 0.3,   // a skin over the room, not a coat of paint
+        opacity: 0.16,
         side: THREE.DoubleSide,
         depthWrite: false,
-      }),
-      MAX_POINTS
+      })
     );
-    this.patches.count = 0;
-    this.patches.frustumCulled = false;
-    this.patches.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.group.add(this.patches);
+    this.surface.frustumCulled = false;
+    this.group.add(this.surface);
+
+    this.wireframe = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color: SENSED, transparent: true, opacity: 0.5, depthWrite: false,
+      })
+    );
+    this.wireframe.frustumCulled = false;
+    this.group.add(this.wireframe);
+
+    /** Geometry of the sensed surface, shared with the occluders. */
+    this.surfaceGeometry = null;
+    this._builtFrom = 0;
 
     this.count = 0;
     this._cells = new Set();
     /** Raw {p, n} samples, kept for automatic hiding-spot detection. */
     this.samples = [];
-    this._m = new THREE.Matrix4();
-    this._q = new THREE.Quaternion();
-    this._scale = new THREE.Vector3(1, 1, 1);
-    this._up = new THREE.Vector3(0, 0, 1);
+
 
     // --- real geometry --------------------------------------------------
     this.geometryGroup = new THREE.Group();
@@ -95,24 +100,34 @@ export class ScanMesh {
    * @param {THREE.Vector3} [normal]  surface normal, for orienting the patch
    */
   addPoint(p, real, normal = null) {
-    // One patch per cell, so sweeping covers ground instead of piling up.
+    // One sample per cell, so sweeping covers ground instead of piling up.
     const key = `${Math.round(p.x / CELL)},${Math.round(p.y / CELL)},${Math.round(p.z / CELL)}`;
     if (this._cells.has(key)) return false;
     this._cells.add(key);
     if (this.count >= MAX_POINTS) return false;
 
-    // Lie the patch in the surface. Without a normal it faces up, which is
-    // right for the floor and no worse than a dot anywhere else.
-    this._q.setFromUnitVectors(this._up, normal ?? UP_FALLBACK);
-    this._m.compose(p, this._q, this._scale);
-    this.patches.setMatrixAt(this.count, this._m);
-
     this.samples.push({ p: p.clone(), n: (normal ?? UP_FALLBACK).clone() });
     this.count++;
-    this.patches.count = this.count;
-    this.patches.instanceMatrix.needsUpdate = true;
     if (real) this.sensed = true;
     return true;
+  }
+
+  /**
+   * Re-triangulate the sensed surface. Cheap enough to call a few times a
+   * second, but only does work when new cells have actually arrived.
+   */
+  rebuild() {
+    if (this.count === this._builtFrom || this.count < 4) return;
+    this._builtFrom = this.count;
+
+    const geometry = buildSurfaceGeometry(this.samples);
+    if (!geometry) return;
+
+    this.surface.geometry.dispose();
+    this.surface.geometry = geometry;
+    this.wireframe.geometry.dispose();
+    this.wireframe.geometry = new THREE.WireframeGeometry(geometry);
+    this.surfaceGeometry = geometry;
   }
 
   /**
@@ -218,9 +233,14 @@ export class ScanMesh {
 
   clear() {
     this.count = 0;
+    this._builtFrom = 0;
     this._cells.clear();
     this.samples.length = 0;
-    this.patches.count = 0;
+    this.surface.geometry.dispose();
+    this.surface.geometry = new THREE.BufferGeometry();
+    this.wireframe.geometry.dispose();
+    this.wireframe.geometry = new THREE.BufferGeometry();
+    this.surfaceGeometry = null;
     for (const [, entry] of this._tracked) {
       entry.object.parent?.remove(entry.object);
       entry.object.geometry?.dispose?.();
