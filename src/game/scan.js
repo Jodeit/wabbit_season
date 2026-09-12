@@ -40,7 +40,6 @@ export class ScanPhase {
     this.onComplete = null;
 
     this.bins = new Set();
-    this.samples = 0;
     this.lastSampleAt = 0;
     this.time = 0;
 
@@ -53,6 +52,7 @@ export class ScanPhase {
       kinds: $('#kind-list'),
       kindHint: $('#kind-hint'),
       readout: $('#scan-readout'),
+      tapHint: $('#tap-hint'),
     };
 
     this.kind = 'surface';
@@ -68,7 +68,6 @@ export class ScanPhase {
     this.active = true;
     document.body.classList.add('scanning');
     this.bins.clear();
-    this.samples = 0;
     this.time = 0;
     this.cover.clear();
     this.scanMesh.clear();
@@ -81,6 +80,7 @@ export class ScanPhase {
 
   stop() {
     this.active = false;
+    this.els.tapHint.hidden = true;
     document.body.classList.remove('scanning');
     this.reticle.setVisible(false);
     // The captured geometry is scaffolding for placing cover, not scenery --
@@ -106,7 +106,6 @@ export class ScanPhase {
       // Sample no faster than ~8Hz so the meter reflects time and motion.
       if (this.time - this.lastSampleAt > 0.12) {
         this.lastSampleAt = this.time;
-        this.samples++;
         // Only sensed surfaces go into the cloud. An estimated point is not a
         // measurement of anything -- plotting a fan of them at a fixed guessed
         // distance scatters dots through mid-air and across the ceiling, which
@@ -122,22 +121,32 @@ export class ScanPhase {
     this._updateMeter();
   }
 
+  /**
+   * How much of a sweep has been done, 0..1.
+   *
+   * Just angular coverage. A second "sample density" term used to be blended
+   * in at 30%, which meant a player who had swept the whole arc still sat at
+   * 85% until enough samples had trickled in -- another bar that looks stuck
+   * for reasons it never explains. Bins only fill on frames where a surface
+   * was actually sampled, so coverage already implies the sampling happened.
+   */
   get sweepProgress() {
-    const coverage = this.bins.size / SWEEP_BINS;
-    const density = this.samples / 45;
-    return clamp(Math.min(coverage, 1) * 0.7 + Math.min(density, 1) * 0.3, 0, 1);
+    return clamp(this.bins.size / SWEEP_BINS, 0, 1);
   }
 
   _updateMeter() {
-    const spotProgress = clamp(this.cover.count / MIN_SPOTS, 0, 1);
-    // The meter means "ready to hunt", so it must read full at exactly the
-    // moment the start button unlocks. Blending the sweep in at the end would
-    // leave it stuck in the nineties, which is the same lie in a smaller size:
-    // a bar that cannot fill reads as a gate no matter how close it gets.
-    const ready = spotProgress >= 1
-      ? 1
-      : this.sweepProgress * 0.3 + spotProgress * 0.7;
-    const pct = Math.round(clamp(ready, 0, 1) * 100);
+    /*
+     * The bar under "Scanning the woom..." measures the scan, and nothing
+     * else.
+     *
+     * It used to be 70% weighted on how many spots you had marked, so with
+     * none marked it could not go past 30% no matter how well you swept. That
+     * put players in a trap: the label says scanning, so they sweep, and the
+     * bar sits at a third looking like a scan that will not finish -- when in
+     * fact the sweep was long done and the game was waiting on a tap it had
+     * never clearly asked for. Marking is a separate step and now says so.
+     */
+    const pct = Math.round(clamp(this.sweepProgress, 0, 1) * 100);
     this.els.meter.style.width = `${pct}%`;
 
     this.els.readout.textContent = this.scanMesh.describe();
@@ -147,20 +156,23 @@ export class ScanPhase {
     const remaining = MIN_SPOTS - this.cover.count;
     if (remaining > 0) {
       this.els.done.disabled = true;
-      this.els.done.textContent = remaining === 1
-        ? 'Mark 1 more hiding spot'
-        : `Mark ${remaining} more hiding spots`;
+      // Reads as an instruction rather than a dead button, since this is the
+      // step people were getting stuck on.
+      this.els.done.textContent = `Tap to mark · ${this.cover.count} of ${MIN_SPOTS}`;
     } else {
       this.els.done.disabled = false;
       this.els.done.textContent = `Stawt Hunting (${this.cover.count} spots)`;
     }
 
+    // The big unmissable prompt, until they have marked their first spot.
+    this.els.tapHint.hidden = !(this.cover.count === 0 && this.sweepProgress > 0.3);
+
     if (this.cover.count >= MAX_SPOTS) {
       this.els.sub.textContent = 'That is plenty of places to hide. Let\'s go.';
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
-    } else if (this.sweepProgress > 0.45) {
-      this.els.sub.textContent = 'Now pick a kind below and tap to mark it.';
+    } else if (this.sweepProgress >= 1) {
+      this.els.sub.textContent = 'Scan done — now tap the woom to mark a hiding spot.';
     } else {
       this.els.sub.textContent = 'Sweep slowly across whatever you can see.';
     }

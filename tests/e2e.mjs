@@ -133,6 +133,27 @@ try {
   check('a ~90-degree sweep can still fill the meter', meterPct >= 100, `${meterPct}%`);
   check('start button unlocks', !(await page.isDisabled('#btn-scan-done')));
 
+  // The bar is labelled "Scanning", so it must measure the sweep alone. It
+  // used to be 70% weighted on marks and so capped at 30% before any were
+  // made, stranding players who were sweeping to fill an already-full scan.
+  const unmarked = await page.evaluate(() => {
+    const { scan, cover } = window.WabbitSeason;
+    const saved = cover.spots.slice();
+    cover.spots.length = 0;
+    scan._updateMeter();
+    const pct = parseInt(document.querySelector('#scan-meter').style.width, 10);
+    const hint = !document.querySelector('#tap-hint').hidden;
+    const label = document.querySelector('#btn-scan-done').textContent;
+    cover.spots.push(...saved);
+    scan._updateMeter();
+    return { pct, hint, label };
+  });
+  check('a finished sweep reads 100% with nothing marked yet',
+    unmarked.pct >= 100, `${unmarked.pct}%`);
+  check('the tap-to-mark prompt appears when nothing is marked', unmarked.hint);
+  check('the locked button instructs rather than just disabling',
+    /tap/i.test(unmarked.label) && unmarked.label.length < 30, `"${unmarked.label}"`);
+
   console.log('\n• scan readout');
   const readout = await page.evaluate(() => ({
     text: document.querySelector('#scan-readout').textContent,

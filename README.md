@@ -31,7 +31,8 @@ easiest way to get it onto a real phone:
 **https://jodeit.github.io/wabbit_season/**
 
 1. **Scan.** Sweep the phone slowly across whatever you can see. About a
-   quarter turn is enough — you do not need to stand up or spin around.
+   quarter turn fills the bar — you do not need to stand up or spin around.
+   The bar measures the sweep and nothing else; marking spots is the next step.
 2. **Mark cover.** Pick how he should use the spot, then tap the reticle on it:
 
    | Kind | For | What he does |
@@ -160,11 +161,12 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
-- **The scan never asks for more of a turn than a seated player has.** The
-  sweep meter saturates at about 90°, and reads full at exactly the moment the
-  start button unlocks. An earlier version wanted ~200° and stalled in the
-  nineties, which reads as a gate that never opens even when nothing is
-  actually blocked.
+- **The sweep meter measures the sweep.** It saturates at about 90°, so a
+  seated player can finish it. Two earlier versions got this wrong in the same
+  way: one demanded ~200°, and one was 70% weighted on marked spots, so it
+  capped at 30% before anything was marked — a bar under the word "Scanning"
+  that cannot fill by scanning sends people on a hunt for a step that does not
+  exist. Marking is a separate step with its own prompt.
 - **The scan visualisation never draws geometry the device did not sense.**
   Real data is rendered as-is. Where there is none, the only thing drawn is
   the assumption itself — the floor plane — named as an assumption. Estimated

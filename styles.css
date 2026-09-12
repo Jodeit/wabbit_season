@@ -67,6 +67,7 @@ html, body {
 #overlay .screen.bare .scan-bottom,
 #overlay .screen.bare .kind,
 #overlay .screen.bare .btn { pointer-events: auto; }
+#overlay .tap-hint,
 #overlay .scan-readout,
 #overlay .hud-top,
 #overlay .hud-bottom,
@@ -206,6 +207,32 @@ h2 { margin: 0 0 10px; font-size: 26px; color: var(--burnt); -webkit-text-stroke
 }
 .scan-readout.estimated { color: #9fd0ff; }
 .scan-readout.sensed { color: #b6ef86; }
+
+/*
+ * Sits just under the reticle. Must never take pointer events: in an iOS
+ * WebXR browser the topmost DOM-overlay element under the touch is asked
+ * whether to cancel the XR select, so anything interactive floating over the
+ * middle of the screen would silently swallow the tap that marks a spot.
+ */
+.tap-hint {
+  position: absolute;
+  top: 56%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 99px;
+  background: rgba(239, 122, 33, .92);
+  color: #21150a;
+  border: 2px solid var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  animation: tapPulse 1.6s ease-in-out infinite;
+}
+@keyframes tapPulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.07); }
+}
 
 .scan-bottom {
   position: absolute;
