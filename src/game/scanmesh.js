@@ -17,11 +17,34 @@ import { buildSurfaceGeometry } from './surface.js';
  * solid mesh there would be inventing geometry the device never sensed.
  */
 
-const MAX_POINTS = 4000;
+/*
+ * Sized for a whole room, not a stream of single rays.
+ *
+ * A phone accumulates a few hundred samples over a sweep; a headset hands over
+ * its entire space setup at once, and a floor alone can be several thousand
+ * cells. With a small cap the floor consumes the whole budget before the walls
+ * are read -- and the walls are where the corners to hide behind are, so the
+ * game finds nowhere to hide in a fully mapped room.
+ */
+const MAX_POINTS = 20000;
 const CELL = 0.07;          // metres; one patch per cell, so they tile
 
 const SENSED = new THREE.Color(0x9fe870);
 const UP_FALLBACK = new THREE.Vector3(0, 1, 0);
+
+/** Standard even-odd test, in the plane's own X/Z. */
+function pointInPolygon(x, z, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const zi = poly[i].z;
+    const zj = poly[j].z;
+    if ((zi > z) !== (zj > z)
+      && x < ((poly[j].x - poly[i].x) * (z - zi)) / (zj - zi) + poly[i].x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
 export class ScanMesh {
   constructor(scene) {
@@ -45,6 +68,7 @@ export class ScanMesh {
     );
     this.surface.frustumCulled = false;
     this.group.add(this.surface);
+    this.surface.visible = true;
 
     this.wireframe = new THREE.LineSegments(
       new THREE.BufferGeometry(),
@@ -145,6 +169,7 @@ export class ScanMesh {
 
     this.source = meshes?.size ? 'mesh' : 'planes';
     this.sensed = true;
+    this.surface.visible = false;   // the runtime's own geometry is drawn instead
 
     const seen = new Set();
     for (const item of set) {
@@ -162,6 +187,15 @@ export class ScanMesh {
       this.geometryGroup.add(object);
       this._poseObject(object, item, frame, refSpace);
       this._tracked.set(item, { object, changed: item.lastChangedTime });
+
+      // Feed the room into the same sample pipeline the hit test uses.
+      //
+      // A headset does not hand over surfaces one ray at a time: it hands over
+      // the whole room at once, from its own space setup. Everything
+      // downstream -- finding hiding places, triangulating a surface,
+      // occlusion -- reads `samples`, so without this the game sits at zero
+      // scanned forever while a perfectly good room mesh is on screen.
+      this._harvest(item, object.matrix, !!meshes?.size);
     }
 
     // Drop anything the runtime stopped tracking.
@@ -170,6 +204,61 @@ export class ScanMesh {
       entry.object.parent?.remove(entry.object);
       entry.object.geometry?.dispose?.();
       this._tracked.delete(item);
+    }
+  }
+
+  /**
+   * Turn a detected plane or mesh into surface samples on the usual grid.
+   * @param {THREE.Matrix4} matrix  the item's world transform
+   */
+  _harvest(item, matrix, isMesh) {
+    const point = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const basis = new THREE.Matrix3().setFromMatrix4(matrix);
+
+    if (isMesh) {
+      const v = item.vertices;
+      const idx = item.indices;
+      if (!v || !idx) return;
+      const a = new THREE.Vector3();
+      const b = new THREE.Vector3();
+      const c = new THREE.Vector3();
+      for (let i = 0; i + 2 < idx.length; i += 3) {
+        a.fromArray(v, idx[i] * 3).applyMatrix4(matrix);
+        b.fromArray(v, idx[i + 1] * 3).applyMatrix4(matrix);
+        c.fromArray(v, idx[i + 2] * 3).applyMatrix4(matrix);
+        normal.copy(c).sub(b).cross(point.copy(a).sub(b)).normalize();
+        if (!Number.isFinite(normal.x)) continue;
+        // Centroid, plus the corners, so large triangles still fill their
+        // cells rather than contributing a single point in the middle.
+        point.copy(a).add(b).add(c).divideScalar(3);
+        this.addPoint(point, true, normal);
+        this.addPoint(a, true, normal);
+        this.addPoint(b, true, normal);
+        this.addPoint(c, true, normal);
+      }
+      return;
+    }
+
+    const poly = item.polygon;
+    if (!poly?.length) return;
+    // A plane's normal is its local +Y; its polygon lies in local X/Z.
+    normal.set(0, 1, 0).applyMatrix3(basis).normalize();
+
+    let minX = Infinity; let maxX = -Infinity;
+    let minZ = Infinity; let maxZ = -Infinity;
+    for (const v of poly) {
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+      if (v.z < minZ) minZ = v.z;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+    for (let x = minX; x <= maxX; x += CELL) {
+      for (let z = minZ; z <= maxZ; z += CELL) {
+        if (!pointInPolygon(x, z, poly)) continue;
+        point.set(x, 0, z).applyMatrix4(matrix);
+        this.addPoint(point, true, normal);
+      }
     }
   }
 

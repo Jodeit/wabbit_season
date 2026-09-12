@@ -163,6 +163,17 @@ export class ScanPhase {
    * was actually sampled, so coverage already implies the sampling happened.
    */
   get sweepProgress() {
+    /*
+     * A headset does not need sweeping at all.
+     *
+     * It hands over its whole room in one go, from its own space setup, rather
+     * than a surface at a time as the player looks around. Asking such a
+     * player to sweep is asking them to fill a bar that has nothing to measure
+     * -- the bins only fill on frames with a hit test, which a headset may not
+     * even offer, so the meter would sit at zero with the room already on
+     * screen.
+     */
+    if (this.scanMesh.source !== 'points' && this.scanMesh.count > 0) return 1;
     return clamp(this.bins.size / SWEEP_BINS, 0, 1);
   }
 
@@ -211,6 +222,8 @@ export class ScanPhase {
         : 'Found one — keep sweeping for more.';
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
+    } else if (this.scanMesh.source !== 'points') {
+      this.els.sub.textContent = 'Got your woom from the headset — finding hiding spots.';
     } else if (this.sweepProgress >= 1) {
       this.els.sub.textContent = 'Looking for hiding spots — keep sweeping the woom.';
     } else {

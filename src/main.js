@@ -211,6 +211,10 @@ const playerPos = new THREE.Vector3();
 function onFrame(dt, info) {
   world.camera.getWorldPosition(playerPos);
 
+  // Controllers wake up and sleep; re-checking is cheap and avoids being
+  // stuck head-mounted because nothing was tracked at session start.
+  if (backend?.mode === 'webxr' && backend.session) mountGun(backend.session);
+
   if (phase === 'scan') {
     scan.update(dt, info);
     cover.update(dt);
@@ -265,6 +269,26 @@ function wireXRInput(session) {
 }
 
 /**
+ * A visible line down the controller's aim.
+ *
+ * Inside an immersive session the browser stops drawing its own pointer, so
+ * without this the player has a controller in their hand and nothing on screen
+ * telling them where it is pointing.
+ */
+function addAimRay(controller) {
+  if (controller.userData.aimRay) return;
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -6),
+  ]);
+  const ray = new THREE.Line(geometry, new THREE.LineBasicMaterial({
+    color: 0xef7a21, transparent: true, opacity: 0.45, depthWrite: false,
+  }));
+  ray.name = 'aim-ray';
+  controller.add(ray);
+  controller.userData.aimRay = ray;
+}
+
+/**
  * Give the gun to a tracked hand if there is one.
  *
  * On a phone the device is the aim and the gun belongs on screen. In a headset
@@ -282,6 +306,7 @@ function mountGun(session) {
   const controller = world.renderer.xr.getController(held);
   // The controller object is only posed while it is in the scene graph.
   if (!controller.parent) world.scene.add(controller);
+  addAimRay(controller);
   shotgun.attachTo(controller, 'controller');
 }
 

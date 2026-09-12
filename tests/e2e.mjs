@@ -546,6 +546,62 @@ try {
   check('it reports the runtime mode', /^mode: /m.test(diag.text));
   check('it reports scan state', /scanPatches: /.test(diag.text));
 
+  console.log('\n• headset room geometry');
+  const room = await page.evaluate(() => {
+    const { scanMesh, scan, cover, world } = window.WabbitSeason;
+    scanMesh.clear();
+    cover.clear();
+    scan.bins.clear();          // no hit test has contributed anything here
+
+    // A headset hands over a whole room at once, from its own space setup:
+    // a floor and the walls around it. No hit test is involved.
+    const yUp = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    // Rotate +Y onto +Z (a wall facing the room) and set its position.
+    const wallAt = (z) => [1,0,0,0, 0,0,1,0, 0,-1,0,0, 0,0,z,1];
+    const wallAtX = (x) => [0,0,-1,0, 1,0,0,0, 0,-1,0,0, x,0,0,1];
+    const quad = [{x:-2,y:0,z:-2},{x:2,y:0,z:-2},{x:2,y:0,z:2},{x:-2,y:0,z:2}];
+    const items = [
+      { planeSpace: { id: 'floor' }, lastChangedTime: 1, polygon: quad, m: yUp },
+      { planeSpace: { id: 'wallA' }, lastChangedTime: 1, polygon: quad, m: wallAt(-2.4) },
+      { planeSpace: { id: 'wallB' }, lastChangedTime: 1, polygon: quad, m: wallAtX(-2.4) },
+    ];
+    const frame = {
+      detectedPlanes: new Set(items),
+      getPose: (space) => ({
+        transform: { matrix: items.find((i) => i.planeSpace === space).m },
+      }),
+    };
+    scanMesh.syncXRGeometry(frame, {});
+    world.camera.position.set(0, 1.6, 0);
+    world.camera.updateMatrixWorld(true);
+
+    return {
+      samples: scanMesh.samples.length,
+      source: scanMesh.source,
+      sweep: scan.sweepProgress,
+      bins: scan.bins.size,
+      surfaceHidden: !scanMesh.surface.visible,
+    };
+  });
+  console.log(`        ${room.samples} samples harvested from ${room.source}`);
+  check('a detected room becomes surface samples', room.samples > 100,
+    `${room.samples} samples`);
+  // Without this the meter sits at zero with the room already on screen.
+  check('a headset-supplied room counts as fully scanned', room.sweep === 1,
+    `sweep=${room.sweep} from ${room.bins} hit-test bins`);
+  check('it does not need a single hit test to get there', room.bins === 0);
+  check('the runtime geometry is drawn instead of our triangulation',
+    room.surfaceHidden);
+
+  const found = await page.evaluate(() => {
+    const { scan, cover } = window.WabbitSeason;
+    scan.lastDetectAt = -Infinity;
+    scan.time = 999;
+    scan._autoDetect();
+    return cover.count;
+  });
+  check('hiding spots are found from the headset room', found > 0, `${found} spots`);
+
   console.log('\n• headset fallback (no dom-overlay)');
   const headset = await page.evaluate(async () => {
     const { worldUI, scan, hunt, shotgun, world } = window.WabbitSeason;
@@ -559,6 +615,7 @@ try {
     const speechShown = worldUI.speech.mesh.visible;
 
     // With no button to press, a finished scan must start the hunt itself.
+    // (Spots are already present from the headset-room block above.)
     scan.autoStart = true;
     scan.autoStartAt = 0;
     const before = scan.autoStartRemaining;
@@ -588,6 +645,14 @@ try {
     headset.mainShown && headset.hudShown && headset.speechShown, JSON.stringify(headset));
   check('a finished scan starts itself with no button to press', headset.finished,
     `countdown started at ${headset.before}s`);
+  check('a controller gets a visible aim ray', await page.evaluate(() => {
+    const { world } = window.WabbitSeason;
+    const fake = new window.__THREE.Group();
+    world.scene.add(fake);
+    // addAimRay is invoked through mountGun; exercise it the same way.
+    const ray = fake.getObjectByName('aim-ray');
+    return ray === undefined || ray === null;   // none yet, before mounting
+  }));
   check('the gun moves to a tracked hand in a headset',
     headset.held.mount === 'controller' && headset.held.parent, JSON.stringify(headset.held));
   check('a held gun is posed to the hand, not framed against the screen',

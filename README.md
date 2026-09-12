@@ -74,7 +74,7 @@ tells you which you got.
 | **HUD** | DOM overlay, or in-world panels when that is not granted | DOM overlay |
 | **Passthrough** | The XR compositor | `getUserMedia` video behind a transparent canvas |
 | **Head tracking** | 6DoF, real world-locked content | 3DoF from the gyroscope |
-| **Surfaces** | Real hit-testing against sensed geometry | Estimated from where you're looking |
+| **Surfaces** | Detected planes or scene mesh, or hit-testing | Estimated from where you're looking |
 | **Scan shows** | The real mesh or planes it detects | The floor and distance it assumes |
 
 ### What the scan actually captures
@@ -203,6 +203,14 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **A headset does not scan a room the way a phone does.** It hands over its
+  whole space setup at once, as detected planes or a scene mesh, and may offer
+  no hit test at all. Every part of the scan used to read from the hit test, so
+  on such a device the meter sat at zero, no samples accumulated, no hiding
+  places were found and the hunt never started — with a perfectly good room
+  mesh on screen the whole time. Detected geometry is now harvested into the
+  same sample pipeline, and a room supplied that way counts as fully scanned
+  rather than asking the player to sweep something already known.
 - **Requesting `dom-overlay` is not the same as getting it.** It is a
   handheld-AR convenience, and headset browsers routinely grant `immersive-ar`
   without it. When it is missing, every button and caption silently disappears
