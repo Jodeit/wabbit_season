@@ -59,6 +59,7 @@ export class ScanPhase {
     this.lastDetectAt = -Infinity;
     this.lastVisionAt = -Infinity;
     this.visionColumns = 0;
+    this.visionSpots = [];
     this.time = 0;
 
     this.els = {
@@ -120,9 +121,11 @@ export class ScanPhase {
       && this.backend.analyseScene
       && this.time - this.lastVisionAt > VISION_EVERY) {
       this.lastVisionAt = this.time;
-      const { points, columns } = this.backend.analyseScene(this.cover.floorY);
+      const { points, columns, spots } = this.backend.analyseScene(this.cover.floorY);
       this.visionColumns = columns;
       for (const { p, n } of points) this.scanMesh.addInferred(p, n);
+      // Hiding places the image itself suggested, kept for the detection pass.
+      this.visionSpots = spots ?? [];
       if (points.length) {
         this.scanMesh.rebuild();
         this.occluders.update(this.scanMesh);
@@ -276,6 +279,10 @@ export class ScanPhase {
     // What the runtime named beats what we inferred, so it goes first and the
     // geometric finder only fills in around it.
     const named = this.scanMesh.semanticSpots(camPos);
+    // Features read out of the camera image rank alongside named geometry:
+    // both are statements about a specific object, not an inference from a
+    // scatter of points.
+    named.push(...this.visionSpots);
     const { spots: inferred } = detectRoom(
       this.scanMesh.samples, this.cover.floorY, camPos);
     // Named spots win ties; an inferred one on top of a known couch is the
@@ -309,6 +316,19 @@ export class ScanPhase {
     this._renderMarks();
   }
 
+  /**
+   * Keep a marked spot on something he could actually stand on.
+   *
+   * Tapping "pop up over" at a wall halfway up the room leaves him standing on
+   * nothing, hanging in mid-air. A surface spot has to be horizontal, so a
+   * mark on a vertical face is turned into one.
+   */
+  _standable(hit) {
+    if (this.kind !== 'surface') return hit.normal;
+    if (Math.abs(hit.normal.y) > 0.5) return hit.normal;
+    return new THREE.Vector3(0, 1, 0);
+  }
+
   /** Choose what the next tap marks. */
   setKind(kind) {
     if (!KINDS[kind]) return;
@@ -338,7 +358,14 @@ export class ScanPhase {
       toast('Six hiding spots is already unsporting.');
       return;
     }
-    this.cover.add(hit.position, hit.normal, this.kind);
+    const at = hit.position.clone();
+    if (this.kind === 'surface') {
+      // Nothing to stand on above counter height, and nothing below the floor.
+      at.y = clamp(at.y, this.cover.floorY, this.cover.floorY + 1.35);
+    } else {
+      at.y = this.cover.floorY + 0.02;
+    }
+    this.cover.add(at, this._standable(hit), this.kind);
     sfx.mark();
     this._renderMarks();
   }

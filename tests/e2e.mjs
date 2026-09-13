@@ -607,6 +607,88 @@ try {
   check('and says so in the readout', /inferred from the camera image/.test(vision.readout),
     vision.readout);
 
+  console.log('\n• reading hiding places out of the image');
+  const scene = await page.evaluate(async () => {
+    const { world } = window.WabbitSeason;
+    const { Vision } = await import('./src/ar/vision.js');
+
+    /*
+     * A synthetic living room, painted the way the camera would see it:
+     * a waist-high couch near on the left, a wall behind, and a doorway on
+     * the right where the floor carries on into another room. Distance is
+     * encoded exactly as it appears to a camera — nearer things meet the
+     * floor lower in frame.
+     */
+    const W = 240;
+    const H = 320;
+    const fake = document.createElement('canvas');
+    fake.width = W;
+    fake.height = H;
+    const c = fake.getContext('2d');
+    c.fillStyle = '#ededed';                      // floor
+    c.fillRect(0, 0, W, H);
+
+    const eye = 1.55;
+    world.camera.position.set(0, eye, 0);
+    world.camera.rotation.set(-0.3, 0, 0, 'YXZ');
+    world.camera.updateMatrixWorld(true);
+    world.camera.updateProjectionMatrix();
+
+    // Project through the real camera rather than deriving it by hand: the
+    // first attempt at this test ignored the camera's pitch and produced an
+    // image no camera would ever see.
+    const T = window.__THREE;
+    const rowOf = (y, d) => {
+      const ndc = new T.Vector3(0, y, -d).project(world.camera);
+      return ((1 - ndc.y) / 2) * H;
+    };
+    const rowFor = (d) => rowOf(0, d);
+    const rowForTop = (d, h) => rowOf(h, d);
+
+    const band = (x0, x1, dist, height, fill) => {
+      const base = rowFor(dist);
+      const top = height > 0 ? rowForTop(dist, height) : 0;
+      c.fillStyle = fill;
+      c.fillRect(x0, top, x1 - x0, base - top);
+    };
+
+    band(0, 90, 1.8, 0.8, '#5a5a5a');     // couch, near left, waist high
+    band(90, 165, 3.6, 2.4, '#c9c9c9');   // wall behind
+    band(165, 240, 5.4, 2.4, '#9a9a9a');  // doorway: floor recedes
+
+    Object.defineProperty(fake, 'videoWidth', { value: W });
+    Object.defineProperty(fake, 'videoHeight', { value: H });
+
+    const v = new Vision(fake);
+    v.analyse(world.camera, 0);
+    const out = v.analyse(world.camera, 0);
+    return {
+      spots: out.spots.map((sp) => ({
+        kind: sp.kind,
+        y: +sp.position.y.toFixed(2),
+        dist: +Math.hypot(sp.position.x, sp.position.z).toFixed(2),
+      })),
+      columns: out.columns,
+      points: out.points.length,
+    };
+  });
+  console.log(`        ${scene.columns} columns accepted, ${scene.points} surface points`);
+  for (const sp of scene.spots) {
+    console.log(`        ${sp.kind.padEnd(8)} ${sp.dist}m away, y=${sp.y}`);
+  }
+  check('it finds the couch as something to pop up behind',
+    scene.spots.some((sp) => sp.kind === 'surface' && sp.y > 0.5 && sp.y < 1.1),
+    JSON.stringify(scene.spots.filter((sp) => sp.kind === 'surface')));
+  check('it finds the edge where the couch ends',
+    scene.spots.some((sp) => sp.kind === 'corner'),
+    JSON.stringify(scene.spots.filter((sp) => sp.kind === 'corner')));
+  check('it finds the doorway where the floor carries on',
+    scene.spots.some((sp) => sp.kind === 'door'),
+    JSON.stringify(scene.spots.filter((sp) => sp.kind === 'door')));
+  // Nothing may hang in mid-air: everything stands on the floor or on a top.
+  check('nothing it suggests floats',
+    scene.spots.every((sp) => sp.y < 1.36), JSON.stringify(scene.spots));
+
   console.log('\n• occlusion with nothing sensed at all');
   const standIns = await page.evaluate(() => {
     const { occluders, cover, scanMesh } = window.WabbitSeason;

@@ -298,6 +298,21 @@ A few decisions worth knowing about:
   stands a surface up from it. Against a synthetic view with a known boundary
   it lands within a few centimetres of the exact answer.
 
+  The floor line alone, though, is only half of it. "The end of the couch",
+  "the chair", "the doorway" are not visible as *surfaces* — they are visible
+  as **changes** in that depth profile:
+
+  | in the profile | in the room |
+  |---|---|
+  | a run of columns at one distance, with a measurable top | furniture to pop up from behind |
+  | a step between adjacent columns | an edge to lean around |
+  | a run that recedes well past its neighbours | a doorway |
+
+  The top of each object comes from a second contrast edge above the floor
+  line: with the distance already fixed, the row where the couch meets the wall
+  behind it gives the couch's height. Against a synthetic room painted through
+  the real camera, a couch drawn 0.8m tall is recovered at 0.80m.
+
   It is inference from one image, not measurement, and is treated that way
   throughout: it needs the floor in shot and the phone roughly upright, it is
   fooled by rugs, hard shadows and dark skirting, and it can say nothing about
