@@ -24,6 +24,8 @@ const SWEEP_BINS = 4;
 const DETECT_EVERY = 0.6;
 /** Seconds to hold a finished scan before starting itself, with no button. */
 const AUTO_START_DELAY = 3;
+/** How often to read geometry out of the camera image, in seconds. */
+const VISION_EVERY = 0.25;
 
 /** Turn a runtime semantic label into something the hunter would say. */
 function prettyLabel(label) {
@@ -55,6 +57,8 @@ export class ScanPhase {
     this.bins = new Set();
     this.lastSampleAt = 0;
     this.lastDetectAt = -Infinity;
+    this.lastVisionAt = -Infinity;
+    this.visionColumns = 0;
     this.time = 0;
 
     this.els = {
@@ -110,6 +114,20 @@ export class ScanPhase {
 
     // Real room geometry, where the runtime actually has some.
     this.scanMesh.syncXRGeometry(info.frame, info.refSpace);
+
+    // Where nothing is sensed, read what the camera image can tell us.
+    if (!this.scanMesh.sensed
+      && this.backend.analyseScene
+      && this.time - this.lastVisionAt > VISION_EVERY) {
+      this.lastVisionAt = this.time;
+      const { points, columns } = this.backend.analyseScene(this.cover.floorY);
+      this.visionColumns = columns;
+      for (const { p, n } of points) this.scanMesh.addInferred(p, n);
+      if (points.length) {
+        this.scanMesh.rebuild();
+        this.occluders.update(this.scanMesh);
+      }
+    }
 
     this.scanMesh.setAssumedFloor(
       this.cover.floorY, this.world.camera.getWorldPosition(new THREE.Vector3()));
@@ -180,7 +198,8 @@ export class ScanPhase {
      * even offer, so the meter would sit at zero with the room already on
      * screen.
      */
-    if (this.scanMesh.source !== 'points' && this.scanMesh.count > 0) return 1;
+    if (this.scanMesh.source !== 'points' && this.scanMesh.source !== 'vision'
+      && this.scanMesh.count > 0) return 1;
     return clamp(this.bins.size / SWEEP_BINS, 0, 1);
   }
 
@@ -229,6 +248,8 @@ export class ScanPhase {
         : 'Found one — keep sweeping for more.';
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
+    } else if (this.scanMesh.source === 'vision') {
+      this.els.sub.textContent = 'Weading the woom from the camewa — keep looking awound.';
     } else if (this.scanMesh.source !== 'points') {
       this.els.sub.textContent = 'Got your woom from the headset — finding hiding spots.';
     } else if (this.sweepProgress >= 1) {
@@ -248,7 +269,7 @@ export class ScanPhase {
    * second-guessed by a heuristic.
    */
   _autoDetect() {
-    if (!this.scanMesh.sensed || !this.scanMesh.samples.length) return;
+    if (!this.scanMesh.hasSurface || !this.scanMesh.samples.length) return;
 
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
     this.scanMesh.setFloorY(this.cover.floorY);

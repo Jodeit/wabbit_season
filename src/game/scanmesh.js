@@ -51,6 +51,8 @@ const KIND_FOR_LABEL = {
 };
 
 const SENSED = new THREE.Color(0x9fe870);
+/** Inferred surfaces are drawn cooler, so they never pass for measured ones. */
+const INFERRED = new THREE.Color(0x74d0ff);
 const UP_FALLBACK = new THREE.Vector3(0, 1, 0);
 
 /** Standard even-odd test, in the plane's own X/Z. */
@@ -143,6 +145,26 @@ export class ScanMesh {
 
   get planeCount() { return this._tracked.size; }
   get pointCount() { return this.count; }
+
+  /** Anything we have geometry for, however it was arrived at. */
+  get hasSurface() { return this.sensed || this.inferred; }
+
+  /**
+   * Record a sample inferred from the camera image rather than measured.
+   *
+   * Kept distinct from a sensed one throughout: it drives the same surface,
+   * detection and occlusion, but it is never allowed to claim it was measured.
+   */
+  addInferred(p, normal) {
+    const added = this.addPoint(p, false, normal);
+    if (added) {
+      this.inferred = true;
+      if (this.source === 'points') this.source = 'vision';
+      this.surface.material.color.set(INFERRED);
+      this.wireframe.material.color.set(INFERRED);
+    }
+    return added;
+  }
 
   /**
    * Record a sensed surface sample.
@@ -454,6 +476,10 @@ export class ScanMesh {
       const area = this.count * CELL * CELL;
       return `${area.toFixed(1)} m² of surface mapped`;
     }
+    if (this.inferred) {
+      const area = this.count * CELL * CELL;
+      return `${area.toFixed(1)} m² inferred from the camera image`;
+    }
     return 'No depth sensor — surfaces are estimated';
   }
 
@@ -463,7 +489,7 @@ export class ScanMesh {
    * actual geometry, that geometry is the truth and the guess is dropped.
    */
   setAssumedFloor(y, centre) {
-    const show = !this.sensed;
+    const show = !this.hasSurface;
     this.assumedFloor.visible = show;
     if (!show) return;
     // Snapped to whole metres so the grid stays put in the room instead of
@@ -481,7 +507,7 @@ export class ScanMesh {
   setVisible(v) {
     this.surface.visible = v && this.source === 'points';
     this.wireframe.visible = v;
-    this.assumedFloor.visible = v && !this.sensed;
+    this.assumedFloor.visible = v && !this.hasSurface;
     this.geometryGroup.traverse((o) => {
       if (o.userData.role === 'display') o.visible = v;
     });
@@ -504,6 +530,9 @@ export class ScanMesh {
     this._tracked.clear();
     this.source = 'points';
     this.sensed = false;
+    this.inferred = false;
+    this.surface.material.color.set(SENSED);
+    this.wireframe.material.color.set(SENSED);
     this.assumedFloor.visible = false;
   }
 }

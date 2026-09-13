@@ -163,6 +163,9 @@ async function beginHunt() {
     gunMount: shotgun.mount,
   });
 
+  // Let the camera-only path snap its reticle to whatever it has inferred.
+  backend.setSurfaceMesh?.(scanMesh.surface);
+
   if (backend.mode === 'webxr') wireXRInput(backend.session);
   if (backend.mode === 'webxr' && !backend.hasHitTest) {
     toast('No surface sensing on this headset — placements are estimated.', 3600);
@@ -556,6 +559,7 @@ diagnostics.install(() => ({
   supportMode,
   coverSpots: cover.count,
   scanSource: scanMesh.source,
+  visionColumns: scan.visionColumns,
   occluders: `${occluders.count} tri / ${occluders.markedCount} marked`,
   voice: voiceAvailable() ? `${voiceName()} (${voiceEnabled() ? 'on' : 'off'})` : 'unavailable',
   scanPatches: scanMesh.pointCount,

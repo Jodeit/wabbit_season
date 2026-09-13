@@ -527,6 +527,86 @@ try {
   check('sparse sweep lines still build an occluding surface',
     swept.triangles > 0, `${swept.triangles} triangles from ${swept.samples} samples`);
 
+  console.log('\n• geometry inferred from the camera image');
+  const vision = await page.evaluate(async () => {
+    const { scanMesh, world } = window.WabbitSeason;
+    const T = window.__THREE;
+    scanMesh.clear();
+
+    // A synthetic view: bright floor below a hard horizontal boundary, dark
+    // wall above it. The boundary row is the whole cue.
+    const { Vision } = await import('./src/ar/vision.js');
+    const fake = document.createElement('canvas');
+    fake.width = 240;
+    fake.height = 320;
+    const c = fake.getContext('2d');
+    const BOUNDARY = 0.72;              // fraction down the frame
+    c.fillStyle = '#1e1e1e';
+    c.fillRect(0, 0, fake.width, fake.height);
+    c.fillStyle = '#e8e8e8';
+    c.fillRect(0, fake.height * BOUNDARY, fake.width, fake.height);
+    // Vision reads .videoWidth/.videoHeight and draws the element.
+    Object.defineProperty(fake, 'videoWidth', { value: fake.width });
+    Object.defineProperty(fake, 'videoHeight', { value: fake.height });
+
+    const v = new Vision(fake);
+    world.camera.position.set(0, 1.55, 0);
+    world.camera.rotation.set(-0.25, 0, 0, 'YXZ');
+    world.camera.updateMatrixWorld(true);
+    world.camera.updateProjectionMatrix();
+
+    v.analyse(world.camera, 0);          // first pass primes the stability check
+    const out = v.analyse(world.camera, 0);
+
+    // Independently work out where that boundary row must be, in metres.
+    const ny = -((BOUNDARY + 0.5 / 64) * 2 - 1);
+    const origin = world.camera.getWorldPosition(new T.Vector3());
+    const dir = new T.Vector3(0, ny, 0.5).unproject(world.camera).sub(origin).normalize();
+    const hit = new T.Vector3();
+    new T.Ray(origin, dir).intersectPlane(new T.Plane(new T.Vector3(0, 1, 0), 0), hit);
+    const expected = hit.distanceTo(origin);
+
+    // Only the base points: the floor line fixes where a surface *meets the
+    // floor*, and points stacked above it are nearer the camera by geometry.
+    const dists = out.points
+      .filter((pt) => Math.abs(pt.p.y) < 0.01)
+      .map((pt) => pt.p.distanceTo(origin));
+    const measured = dists.length ? dists.reduce((a, b) => a + b) / dists.length : 0;
+
+    for (const { p, n } of out.points) scanMesh.addInferred(p, n);
+    scanMesh.rebuild();
+    const pos = scanMesh.surfaceGeometry?.getAttribute('position');
+
+    return {
+      columns: out.columns,
+      points: out.points.length,
+      expected: +expected.toFixed(2),
+      measured: +measured.toFixed(2),
+      inferred: scanMesh.inferred,
+      sensed: scanMesh.sensed,
+      source: scanMesh.source,
+      readout: scanMesh.describe(),
+      triangles: pos ? pos.count / 3 : 0,
+    };
+  });
+  console.log(`        floor line -> ${vision.columns} columns, ${vision.points} points`);
+  console.log(`        distance: expected ${vision.expected}m, got ${vision.measured}m`);
+  console.log(`        "${vision.readout}"`);
+  check('a floor boundary is found across the frame', vision.columns > 20,
+    `${vision.columns} columns`);
+  // The ground-plane constraint is exact given eye height and view direction,
+  // so this should agree closely, not roughly.
+  check('and converted to the geometrically correct distance',
+    Math.abs(vision.measured - vision.expected) < 0.25,
+    `${vision.measured}m vs ${vision.expected}m`);
+  check('it builds a surface that can occlude', vision.triangles > 0,
+    `${vision.triangles} triangles`);
+  check('inferred geometry never claims to have been sensed',
+    vision.inferred && !vision.sensed && vision.source === 'vision',
+    JSON.stringify({ inferred: vision.inferred, sensed: vision.sensed, source: vision.source }));
+  check('and says so in the readout', /inferred from the camera image/.test(vision.readout),
+    vision.readout);
+
   console.log('\n• occlusion with nothing sensed at all');
   const standIns = await page.evaluate(() => {
     const { occluders, cover, scanMesh } = window.WabbitSeason;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Vision } from './vision.js';
 
 /**
  * Camera-passthrough fallback for devices with no `immersive-ar`.
@@ -34,6 +35,9 @@ export class FallbackBackend {
     this._orientation = { alpha: 0, beta: 0, gamma: 0, screen: 0, got: false };
     this._onDeviceOrientation = this._onDeviceOrientation.bind(this);
     this._raycaster = new THREE.Raycaster();
+    /** Reads geometry out of the camera image; Safari has nothing else. */
+    this.vision = new Vision(videoEl);
+    this._surfaceMesh = null;
     this._floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   }
 
@@ -151,6 +155,22 @@ export class FallbackBackend {
   _estimateAlong(dir) {
     const camera = this.world.camera;
     const origin = camera.getWorldPosition(new THREE.Vector3());
+
+    // Anything the image has already told us about beats a guess.
+    if (this._surfaceMesh?.geometry?.getAttribute('position')) {
+      this._raycaster.set(origin, dir);
+      const hit = this._raycaster.intersectObject(this._surfaceMesh, false)[0];
+      if (hit) {
+        return {
+          position: hit.point.clone(),
+          normal: hit.face
+            ? hit.face.normal.clone().transformDirection(this._surfaceMesh.matrixWorld)
+            : new THREE.Vector3(0, 1, 0),
+          real: false,
+          inferred: true,
+        };
+      }
+    }
 
     const ray = new THREE.Ray(origin, dir);
     const floorPoint = new THREE.Vector3();

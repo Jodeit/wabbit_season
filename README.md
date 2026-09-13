@@ -130,7 +130,7 @@ that is:
 | `mesh` — scene reconstruction (`XRMesh`) | green wireframe | Quest 3 and similar |
 | `planes` — detected planes (`XRPlane`) | green boundary polygons | Android Chrome |
 | `points` — sensed surface samples | a triangulated mesh with visible edges | hit-test-only runtimes (incl. the iOS XR Viewer) |
-| *(nothing sensed)* | assumed floor grid only | iOS Safari |
+| `vision` — inferred from the camera image | the same mesh, drawn cooler | iOS Safari |
 
 **No LiDAR in Safari.** iPhones and iPads have a depth sensor, but Safari does
 not expose it — there is no web API for ARKit's scene reconstruction, depth
@@ -288,6 +288,23 @@ A few decisions worth knowing about:
   observations are closed where a cell has neighbours on opposite sides. That
   is interpolating between measurements; a lone cell out on its own still stays
   empty, which is the difference between closing a hole and inventing a room.
+- **One cue in a camera image is genuinely metric: where the floor stops.**
+  Safari senses nothing — no depth, no planes, no tracking — so the game used
+  to assume a floor and a fixed arm's length. But with a known eye height and
+  view direction, the pixel where a surface meets the floor fixes that
+  surface's distance *exactly*: it is the ground-plane constraint, the cue that
+  lets you judge a kerb with one eye shut. `ar/vision.js` finds that boundary
+  per column by contrast, converts it through the camera's own projection, and
+  stands a surface up from it. Against a synthetic view with a known boundary
+  it lands within a few centimetres of the exact answer.
+
+  It is inference from one image, not measurement, and is treated that way
+  throughout: it needs the floor in shot and the phone roughly upright, it is
+  fooled by rugs, hard shadows and dark skirting, and it can say nothing about
+  what is behind anything. A column must report the same distance twice before
+  it is believed, results are drawn in a cooler colour than sensed surfaces,
+  and the readout says "inferred from the camera image" rather than "mapped".
+  A confident wrong answer would be worse than an honest estimate.
 - **Where nothing is sensed, the player's own marks occlude.** In Safari there
   is no depth of any kind, so there is no room geometry to hide him behind and
   he floats in front of everything. But a marked spot is not a guess — it is
