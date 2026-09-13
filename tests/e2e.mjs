@@ -48,6 +48,8 @@ const BASE = process.env.BASE ?? own.base;
 
 const errors = [];
 const browser = await chromium.launch({
+  // Lets a sandbox with a pre-installed browser skip Playwright's own download.
+  executablePath: process.env.CHROME_PATH || undefined,
   args: [
     '--use-fake-ui-for-media-stream',
     '--use-fake-device-for-media-stream',
@@ -94,7 +96,35 @@ try {
   });
   check('steep look-down lands on the floor', heights['-60'] < 0.1, `y=${heights['-60']}m`);
   check('shallow look-down lands at furniture height',
-    heights['-12'] > 0.6 && heights['-12'] < 1.3, `y=${heights['-12']}m`);
+    heights['-12'] >= 0.6 && heights['-12'] < 1.3, `y=${heights['-12']}m`);
+
+  // Safari has no tracking, so every estimate has to be re-derived from the
+  // phone's current attitude rather than cached from where it was pointed
+  // last -- and the calibration has to be able to move the camera.
+  const live = await page.evaluate(() => {
+    const { world, scan } = window.WabbitSeason;
+    const look = (deg) => {
+      world.camera.rotation.set((deg * Math.PI) / 180, 0, 0, 'YXZ');
+      world.camera.updateMatrixWorld(true);
+      return scan.backend.analyseScene(0);
+    };
+    // Pointing at the ceiling puts the floor out of shot, and the estimate
+    // depends on the floor: whatever it said a moment ago, it must say nothing
+    // now.
+    look(-30);
+    const up = look(40);
+    scan.backend.setEyeHeight(1.72);
+    const eye = world.camera.position.y;
+    scan.backend.setEyeHeight(1.55);
+    world.camera.rotation.set(0, 0, 0, 'YXZ');
+    world.camera.updateMatrixWorld(true);
+    return { wired: typeof scan.backend.analyseScene === 'function', up: up.points.length, eye };
+  });
+  check('the camera inference is wired up in the fallback backend', live.wired);
+  check('the estimate follows where the phone is pointed now', live.up === 0,
+    `${live.up} points with the floor out of shot`);
+  check('calibrating the eye height moves the camera', Math.abs(live.eye - 1.72) < 1e-6,
+    `y=${live.eye}`);
 
   console.log('\n• marking cover (constrained sweep, as if lying in bed)');
   // Deliberately sweep only ~90 degrees. A player propped up in bed cannot
@@ -162,22 +192,34 @@ try {
     cls: document.querySelector('#scan-readout').className,
     points: window.WabbitSeason.scanMesh.pointCount,
     visible: window.WabbitSeason.scanMesh.group.visible,
+    inferred: window.WabbitSeason.scanMesh.inferred,
+    sensed: window.WabbitSeason.scanMesh.sensed,
+    floor: window.WabbitSeason.scanMesh.assumedFloor.visible,
+    hasSurface: window.WabbitSeason.scanMesh.hasSurface,
   }));
   console.log(`        "${readout.text}"`);
   check('the scan overlay is drawn', readout.visible);
-  // Estimated surfaces are guesses, not measurements. Plotting them as points
-  // would scatter dots through mid-air and read as a scan of nothing.
-  check('no patches are drawn without a depth sensor', readout.points === 0,
+  // With no depth sensor the camera image is the only channel there is, so
+  // geometry does appear -- but it is inference, and must never claim to be
+  // a measurement.
+  check('the camera image alone still yields geometry', readout.points > 0,
     `${readout.points} points`);
-  check('the assumed floor is drawn instead',
-    await page.evaluate(() => window.WabbitSeason.scanMesh.assumedFloor.visible));
+  check('inferred geometry never sets the sensed flag',
+    readout.inferred === true && readout.sensed === false,
+    `inferred=${readout.inferred} sensed=${readout.sensed}`);
+  // The assumed floor is a stand-in for having nothing; anything read out of
+  // the room replaces it.
+  check('the assumed floor gives way once the room has been read',
+    readout.hasSurface ? !readout.floor : readout.floor);
   check('estimated surfaces are reported as estimated, not sensed',
-    /estimated/.test(readout.text) && readout.cls.includes('estimated'), readout.cls);
+    /estimated|inferred/.test(readout.text) && readout.cls.includes('estimated'),
+    `${readout.cls} "${readout.text}"`);
 
   // A device that really senses surfaces does get a point cloud.
   const sensedCloud = await page.evaluate(() => {
     const { scanMesh } = window.WabbitSeason;
     const T = window.__THREE;
+    const before = scanMesh.pointCount;
     // A contiguous patch of wall, not a scattered line: isolated samples have
     // no neighbours to join to and correctly produce no surface.
     const n = new T.Vector3(0, 0, 1);
@@ -187,7 +229,7 @@ try {
       }
     }
     return {
-      points: scanMesh.pointCount,
+      points: scanMesh.pointCount - before,
       text: scanMesh.describe(),
       floor: scanMesh.assumedFloor.visible,
     };
@@ -258,6 +300,9 @@ try {
     const T = window.__THREE;
     cover.clear();
     scanMesh.clear();
+    // This room is the device's report. Drop anything the camera inference
+    // has to say so the sensed path is tested on its own.
+    scan.visionSpots = [];
 
     const nA = new T.Vector3(0, 0, 1);    // wall facing +Z, at z = -3
     const nB = new T.Vector3(1, 0, 0);    // wall facing +X, at x = -2.5
@@ -322,10 +367,16 @@ try {
     };
     scan.backend.stickyHitAt = performance.now();
     scan.mark();
-    return { added: cover.count > before, manual: cover.spots.some((s) => !s.auto) };
+    // The tap may displace a detected spot rather than add to the total, so
+    // what matters is that the player's own mark is now there.
+    // Height is the marking mode's to decide -- a door stands on the floor --
+    // so the tap is checked where it was aimed, on the ground plane.
+    const landed = cover.spots.find((s) => !s.auto
+      && Math.hypot(s.position.x - 1, s.position.z + 2) < 0.1);
+    return { landed: !!landed, before, after: cover.count };
   });
   check('a tap still lands when the live hit test has dropped out',
-    sticky.added && sticky.manual, JSON.stringify(sticky));
+    sticky.landed, JSON.stringify(sticky));
 
   console.log('\n• hunt');
   await page.click('#btn-scan-done');

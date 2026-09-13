@@ -153,6 +153,26 @@ export class CoverSet {
     }
   }
 
+  /**
+   * Give up the detected spot nearest a point, so the player's own tap always
+   * has somewhere to go. A tap is a statement of intent; a detection is a
+   * guess, and the guess is usually about the very thing being re-marked.
+   */
+  removeNearestAuto(position) {
+    let best = -1;
+    let bestDistance = Infinity;
+    for (let i = 0; i < this.spots.length; i++) {
+      if (!this.spots[i].auto) continue;
+      const d = this.spots[i].position.distanceTo(position);
+      if (d < bestDistance) { bestDistance = d; best = i; }
+    }
+    if (best < 0) return null;
+    const [spot] = this.spots.splice(best, 1);
+    this.scene.remove(spot.marker);
+    spot.dispose();
+    return spot;
+  }
+
   /** Remove the most recent spot the player marked by hand. */
   removeLastManual() {
     for (let i = this.spots.length - 1; i >= 0; i--) {

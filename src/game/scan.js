@@ -385,7 +385,9 @@ export class ScanPhase {
       toast('Point at a surface first — floor, counter, couch.');
       return;
     }
-    if (this.cover.count >= MAX_SPOTS) {
+    if (this.cover.count >= MAX_SPOTS && !this.cover.removeNearestAuto(hit.position)) {
+      // Only the player's own marks can fill the quota outright. Detected ones
+      // step aside, or automatic detection would lock them out of marking.
       toast('Six hiding spots is already unsporting.');
       return;
     }

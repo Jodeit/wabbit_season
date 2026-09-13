@@ -192,6 +192,33 @@ export class FallbackBackend {
     return { position, normal, real: false };
   }
 
+  /**
+   * Re-read the room out of the current camera frame.
+   *
+   * Safari gives us one still image and a gyroscope, so this is the only
+   * channel there is. It is re-run on a timer rather than cached: every frame
+   * is a fresh estimate from the phone's current attitude, so turning towards
+   * something new reads that thing rather than re-projecting an old answer.
+   */
+  analyseScene(floorY = 0) {
+    return this.vision.analyse(this.world.camera, floorY);
+  }
+
+  /**
+   * The ground-plane estimate scales with the assumed eye height, so anything
+   * that can measure a real distance can correct it. Moving the camera is what
+   * applies the correction: every subsequent unprojection starts from here.
+   */
+  setEyeHeight(height) {
+    this.eyeHeight = height;
+    this.world.camera.position.y = height;
+  }
+
+  /** Lets the reticle land on inferred geometry instead of an assumed plane. */
+  setSurfaceMesh(mesh) {
+    this._surfaceMesh = mesh ?? null;
+  }
+
   setFrameCallback(fn) { this.frameCallback = fn; }
 
   async stop() {
