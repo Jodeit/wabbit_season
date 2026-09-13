@@ -29,6 +29,27 @@ import { buildSurfaceGeometry } from './surface.js';
 const MAX_POINTS = 20000;
 const CELL = 0.07;          // metres; one patch per cell, so they tile
 
+/**
+ * What each label the runtime reports is good for. Anything not listed —
+ * floor, ceiling, wall art, lamps — is either not somewhere to hide or is
+ * better handled by the geometric corner finder.
+ */
+const KIND_FOR_LABEL = {
+  couch: 'surface',
+  sofa: 'surface',
+  table: 'surface',
+  desk: 'surface',
+  bed: 'surface',
+  storage: 'surface',
+  shelf: 'surface',
+  cabinet: 'surface',
+  screen: 'corner',
+  door: 'door',
+  doorframe: 'door',
+  window: 'corner',
+  'wall art': 'corner',
+};
+
 const SENSED = new THREE.Color(0x9fe870);
 const UP_FALLBACK = new THREE.Vector3(0, 1, 0);
 
@@ -97,6 +118,12 @@ export class ScanMesh {
     this.lineMaterial = new THREE.LineBasicMaterial({
       color: 0x9fe870, transparent: true, opacity: 0.65, depthWrite: false,
     });
+    // Paints nothing, writes depth: the room hides things without being seen.
+    this.occluderMaterial = new THREE.MeshBasicMaterial({
+      colorWrite: false, depthWrite: true, side: THREE.DoubleSide,
+    });
+    this._occludersOn = false;
+    this._floorY = 0;
 
     // --- the assumed floor -----------------------------------------------
     // Loose points alone read as confetti. With no depth sensor the model of
@@ -186,7 +213,11 @@ export class ScanMesh {
       if (!object) continue;
       this.geometryGroup.add(object);
       this._poseObject(object, item, frame, refSpace);
-      this._tracked.set(item, { object, changed: item.lastChangedTime });
+      this._tracked.set(item, {
+        object,
+        changed: item.lastChangedTime,
+        label: item.semanticLabel ?? '',
+      });
 
       // Feed the room into the same sample pipeline the hit test uses.
       //
@@ -271,23 +302,147 @@ export class ScanMesh {
     object.matrix.decompose(object.position, object.quaternion, object.scale);
   }
 
-  /** Scene-reconstruction mesh, drawn as a wireframe. */
+  /**
+   * Scene-reconstruction mesh: a wireframe to look at, and the solid surface
+   * behind it to hide things.
+   *
+   * Drawing it as lines alone left occlusion to a re-triangulation of sampled
+   * points, which is hopeless for a scene mesh — a whole wall can be two
+   * triangles, so sampling its corners and centre yields nothing resembling a
+   * surface, and the wabbit walks straight through the couch.
+   */
   _buildMesh(xrMesh) {
     if (!xrMesh.vertices?.length) return null;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(xrMesh.vertices, 3));
     if (xrMesh.indices) geo.setIndex(new THREE.BufferAttribute(xrMesh.indices, 1));
-    return new THREE.LineSegments(new THREE.WireframeGeometry(geo), this.lineMaterial);
+
+    const group = new THREE.Group();
+    group.add(this._asDisplay(new THREE.LineSegments(
+      new THREE.WireframeGeometry(geo), this.lineMaterial)));
+    group.add(this._asOccluder(new THREE.Mesh(geo, this.occluderMaterial)));
+    return group;
   }
 
-  /** Detected plane, drawn as its boundary polygon. */
+  /** Detected plane: its boundary to look at, its filled area to hide things. */
   _buildPlane(xrPlane) {
     const poly = xrPlane.polygon;
     if (!poly?.length) return null;
+
+    const group = new THREE.Group();
     const pts = poly.map((v) => new THREE.Vector3(v.x, v.y, v.z));
     pts.push(pts[0].clone());
-    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), this.lineMaterial);
+    group.add(this._asDisplay(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts), this.lineMaterial)));
+
+    // Fan-triangulate the polygon. Detected planes are convex in practice, and
+    // a fan is exact for those and close enough for the rest.
+    const verts = [];
+    for (let i = 1; i + 1 < poly.length; i++) {
+      verts.push(
+        poly[0].x, poly[0].y, poly[0].z,
+        poly[i].x, poly[i].y, poly[i].z,
+        poly[i + 1].x, poly[i + 1].y, poly[i + 1].z
+      );
+    }
+    if (verts.length) {
+      const solid = new THREE.BufferGeometry();
+      solid.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      group.add(this._asOccluder(new THREE.Mesh(solid, this.occluderMaterial)));
+    }
+    return group;
   }
+
+  _asDisplay(object) {
+    object.userData.role = 'display';
+    return object;
+  }
+
+  _asOccluder(object) {
+    object.userData.role = 'occluder';
+    object.visible = false;
+    object.renderOrder = -10;      // depth laid down before anything is drawn
+    object.frustumCulled = false;
+    return object;
+  }
+
+  /** Toggle the real room's solid geometry as occluders. */
+  setOccludersVisible(on) {
+    this._occludersOn = on;
+    this.geometryGroup.traverse((o) => {
+      if (o.userData.role === 'occluder') o.visible = on;
+    });
+  }
+
+  /** Does the runtime give us real geometry to occlude with? */
+  get hasRuntimeOccluders() {
+    return this._tracked.size > 0;
+  }
+
+  /**
+   * Hiding places the runtime has already named for us.
+   *
+   * A headset does not just hand over geometry, it hands over meaning: every
+   * plane carries a semanticLabel like "couch", "table", "door" or "window".
+   * Guessing furniture from clusters of points is what you do when nobody told
+   * you what anything is — when the device has already said "this is a couch",
+   * using that beats inferring it, and it is the only way to know a door is a
+   * door rather than part of the wall it sits in.
+   */
+  semanticSpots(camPos) {
+    const spots = [];
+    for (const [item, entry] of this._tracked) {
+      const kind = KIND_FOR_LABEL[String(entry.label).toLowerCase()];
+      if (!kind) continue;
+
+      const poly = item.polygon;
+      if (!poly?.length) continue;
+      const matrix = entry.object.matrix;
+
+      // Work in world space, and take the edge furthest from the player: the
+      // interesting part of a couch is the side he can duck behind.
+      let farthest = null;
+      let best = -Infinity;
+      const centre = new THREE.Vector3();
+      const point = new THREE.Vector3();
+      for (const v of poly) {
+        point.set(v.x, v.y, v.z).applyMatrix4(matrix);
+        centre.add(point);
+        const d = point.distanceToSquared(camPos);
+        if (d > best) { best = d; farthest = point.clone(); }
+      }
+      if (!farthest) continue;
+      centre.divideScalar(poly.length);
+
+      const normal = new THREE.Vector3(0, 1, 0)
+        .applyMatrix3(new THREE.Matrix3().setFromMatrix4(matrix)).normalize();
+
+      if (kind === 'surface') {
+        const away = farthest.clone().sub(camPos).setY(0).normalize().multiplyScalar(0.18);
+        spots.push({
+          position: farthest.add(away), normal: new THREE.Vector3(0, 1, 0),
+          kind, weight: 5000, label: entry.label,
+        });
+      } else {
+        // A door or window is a vertical opening: stand him in it, on the
+        // floor, facing out into the room.
+        const out = normal.clone().setY(0).normalize();
+        if (out.lengthSq() < 0.1) continue;
+        if (out.dot(camPos.clone().sub(centre)) < 0) out.negate();
+        spots.push({
+          position: new THREE.Vector3(centre.x, this._floorY, centre.z)
+            .addScaledVector(out, 0.1),
+          normal: out,
+          kind,
+          weight: 6000,
+          label: entry.label,
+        });
+      }
+    }
+    return spots;
+  }
+
+  setFloorY(y) { this._floorY = y; }
 
   /** Human-readable summary for the scan HUD. */
   describe() {
@@ -318,7 +473,19 @@ export class ScanMesh {
       Math.round(centre?.x ?? 0), y, Math.round(centre?.z ?? 0));
   }
 
-  setVisible(v) { this.group.visible = v; }
+  /**
+   * Show or hide the scan overlay. The room's occluders are deliberately not
+   * affected: they have to keep working through the hunt, when the overlay
+   * itself is out of the way.
+   */
+  setVisible(v) {
+    this.surface.visible = v && this.source === 'points';
+    this.wireframe.visible = v;
+    this.assumedFloor.visible = v && !this.sensed;
+    this.geometryGroup.traverse((o) => {
+      if (o.userData.role === 'display') o.visible = v;
+    });
+  }
 
   clear() {
     this.count = 0;

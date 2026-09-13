@@ -134,9 +134,10 @@ export class CoverSet {
     if (point.y < this.floorY) this.floorY = point.y;
   }
 
-  add(position, normal, kind = 'surface', auto = false) {
+  add(position, normal, kind = 'surface', auto = false, label = null) {
     const spot = new CoverSpot(
-      position, normal, labelForSpot(kind, position.y, this.floorY), kind, auto);
+      position, normal,
+      label ?? labelForSpot(kind, position.y, this.floorY), kind, auto);
     this.spots.push(spot);
     this.scene.add(spot.marker);
     return spot;

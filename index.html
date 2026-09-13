@@ -99,6 +99,7 @@
         <div class="hint" id="hunt-hint">Hold to shoulder the gun · release to fire</div>
       </div>
       <button class="btn ghost tiny corner" id="btn-quit">End Hunt</button>
+      <button class="btn ghost tiny corner corner-left" id="btn-pause">Pause</button>
     </section>
 
     <!-- ============ RESULTS ============ -->
@@ -120,6 +121,16 @@
         <h2 id="err-title">Twouble</h2>
         <p id="err-body"></p>
         <button class="btn primary" data-goto="title">Back</button>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-paused" data-screen="paused" hidden>
+      <div class="card">
+        <h2>Paused</h2>
+        <p class="blurb">He'll wait. He's got all day.</p>
+        <button class="btn primary" id="btn-resume">Wesume the Hunt</button>
+        <button class="btn ghost" id="btn-restart">Stawt Ovew</button>
+        <button class="btn ghost" id="btn-end">End Hunt</button>
       </div>
     </section>
 

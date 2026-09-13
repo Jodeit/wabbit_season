@@ -331,8 +331,17 @@ try {
   await page.click('#btn-scan-done');
   await page.waitForTimeout(400);
   check('hunt HUD is shown', await page.isVisible('#screen-hunt'));
+  // The scan group stays in the scene so the room can keep occluding; only
+  // the parts the player looks at are cleared away.
   check('the scan overlay is cleared away for the hunt',
-    !(await page.evaluate(() => window.WabbitSeason.scanMesh.group.visible)));
+    await page.evaluate(() => {
+      const { scanMesh } = window.WabbitSeason;
+      let anyDisplay = scanMesh.surface.visible || scanMesh.wireframe.visible;
+      scanMesh.geometryGroup.traverse((o) => {
+        if (o.userData.role === 'display' && o.visible) anyDisplay = true;
+      });
+      return !anyDisplay;
+    }));
   check('the gun is on screen', await page.evaluate(() => {
     const { shotgun, world } = window.WabbitSeason;
     const T = window.__THREE;
@@ -457,7 +466,7 @@ try {
   const occ = await page.evaluate(() => {
     const { occluders, scanMesh } = window.WabbitSeason;
     scanMesh.rebuild();
-    occluders.update(scanMesh.surfaceGeometry);
+    occluders.update(scanMesh);
     return {
       triangles: occluders.count,
       shared: occluders.mesh.geometry === scanMesh.surfaceGeometry,
@@ -466,6 +475,7 @@ try {
       depthWrite: occluders.material.depthWrite,
       surfaceDrawn: !!scanMesh.surface.geometry.getAttribute('position'),
       wireDrawn: !!scanMesh.wireframe.geometry.getAttribute('position'),
+      runtime: occluders.runtime,
     };
   });
   check('the scan is triangulated into a connected mesh', occ.triangles > 0,
@@ -475,6 +485,8 @@ try {
   check('occluders write depth but paint nothing',
     occ.colorWrite === false && occ.depthWrite === true, JSON.stringify(occ));
   check('the occluder is the very mesh the player was shown', occ.shared);
+  check('it is our own triangulation when there is no runtime geometry',
+    !occ.runtime, JSON.stringify({ runtime: occ.runtime }));
   check('occluders are active during the hunt', occ.visible);
 
   console.log('\n• grounding');
@@ -601,6 +613,112 @@ try {
     return cover.count;
   });
   check('hiding spots are found from the headset room', found > 0, `${found} spots`);
+
+  console.log('\n• named hiding places and real occluders');
+  const named = await page.evaluate(() => {
+    const { scanMesh, cover, scan, world } = window.WabbitSeason;
+    scanMesh.clear();
+    cover.clear();
+    const yUp = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    const doorM = [1,0,0,0, 0,0,1,0, 0,-1,0,0, 0,0,-3,1];
+    const quad = (w, h) => [{x:-w,y:0,z:-h},{x:w,y:0,z:-h},{x:w,y:0,z:h},{x:-w,y:0,z:h}];
+    // A headset does not just give geometry, it gives meaning.
+    const items = [
+      { planeSpace:{id:'couch'}, lastChangedTime:1, semanticLabel:'couch',
+        polygon: quad(0.9, 0.4), m:[1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0.5,-2,1] },
+      { planeSpace:{id:'door'}, lastChangedTime:1, semanticLabel:'door',
+        polygon: quad(0.45, 1.0), m: doorM },
+      { planeSpace:{id:'floor'}, lastChangedTime:1, semanticLabel:'floor',
+        polygon: quad(3, 3), m: yUp },
+    ];
+    const frame = {
+      detectedPlanes: new Set(items),
+      getPose: (space) => ({
+        transform: { matrix: items.find((i) => i.planeSpace === space).m },
+      }),
+    };
+    scanMesh.syncXRGeometry(frame, {});
+    world.camera.position.set(0, 1.6, 0);
+    world.camera.updateMatrixWorld(true);
+
+    scan.lastDetectAt = -Infinity;
+    scan.time = 999;
+    scan._autoDetect();
+    return cover.spots.map((sp) => ({ kind: sp.kind, label: sp.label }));
+  });
+  for (const n of named) console.log(`        ${n.kind.padEnd(8)} ${n.label}`);
+  check('a couch becomes something to pop up from behind',
+    named.some((n) => n.kind === 'surface' && /couch/.test(n.label)),
+    JSON.stringify(named));
+  check('a door becomes a door to come through',
+    named.some((n) => n.kind === 'door' && /doow/.test(n.label)),
+    JSON.stringify(named));
+
+  const realOcc = await page.evaluate(() => {
+    const { scanMesh, occluders } = window.WabbitSeason;
+    occluders.update(scanMesh);
+    occluders.setVisible(true);
+    let solids = 0;
+    let mats = true;
+    scanMesh.geometryGroup.traverse((o) => {
+      if (o.userData.role !== 'occluder') return;
+      solids++;
+      if (!o.visible || o.material.colorWrite !== false) mats = false;
+    });
+    return { solids, mats, ourMeshOff: !occluders.mesh.visible, runtime: occluders.runtime };
+  });
+  // Re-deriving a surface from points sampled off a scene mesh loses most of
+  // it, which is how he ends up visible through a couch.
+  check('the runtime room itself occludes, solid and unpainted',
+    realOcc.solids >= 3 && realOcc.mats, JSON.stringify(realOcc));
+  check('our own triangulation stands aside when the real thing exists',
+    realOcc.ourMeshOff && realOcc.runtime, JSON.stringify(realOcc));
+  check('the room keeps occluding once the scan overlay is hidden',
+    await page.evaluate(() => {
+      const { scanMesh } = window.WabbitSeason;
+      scanMesh.setVisible(false);
+      let stillOccluding = true;
+      scanMesh.geometryGroup.traverse((o) => {
+        if (o.userData.role === 'occluder' && !o.visible) stillOccluding = false;
+      });
+      return stillOccluding;
+    }));
+
+  console.log('\n• pause and restart');
+  const menu = await page.evaluate(() => {
+    const { worldUI, hunt } = window.WabbitSeason;
+    worldUI.setEnabled(true);
+    let pressed = null;
+    worldUI.setButtons([
+      { label: 'Pause', action: () => { pressed = 'pause'; } },
+      { label: 'Westawt', action: () => { pressed = 'restart'; } },
+    ]);
+    const count = worldUI.buttons.length;
+
+    // Aim straight at the first button and press.
+    const T = window.__THREE;
+    const target = worldUI.buttons[0].panel.mesh.getWorldPosition(new T.Vector3());
+    const origin = new T.Vector3(0, 1.6, 0);
+    const ray = new T.Raycaster(origin, target.clone().sub(origin).normalize());
+    const hovered = !!worldUI.pick(ray);
+    const activated = worldUI.press();
+
+    hunt.setPaused(true);
+    const pausedBlocks = (() => {
+      const before = hunt.shots;
+      hunt.pressStart();
+      hunt.pressEnd();
+      return hunt.shots === before;
+    })();
+    hunt.setPaused(false);
+    worldUI.setEnabled(false);
+    return { count, hovered, activated, pressed, pausedBlocks };
+  });
+  check('in-world buttons exist to pause and restart', menu.count === 2);
+  check('the controller can point at them', menu.hovered);
+  check('pressing one activates it', menu.activated && menu.pressed === 'pause',
+    JSON.stringify(menu));
+  check('a paused hunt ignores the trigger', menu.pausedBlocks);
 
   console.log('\n• headset fallback (no dom-overlay)');
   const headset = await page.evaluate(async () => {

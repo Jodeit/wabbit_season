@@ -30,6 +30,7 @@ const reticle = new Reticle(world.scene);
 const scanMesh = new ScanMesh(world.scene);
 const occluders = new Occluders(world.scene);
 const worldUI = new WorldUI(world.scene, world.camera);
+occluders.attach(scanMesh);
 
 const wabbit = new Wabbit();
 world.scene.add(wabbit.root);
@@ -219,6 +220,10 @@ function onFrame(dt, info) {
     scan.update(dt, info);
     cover.update(dt);
   } else if (phase === 'hunt') {
+    // Detected planes drift and grow as the runtime refines them, so the
+    // occluders have to keep up rather than being frozen at scan time.
+    scanMesh.syncXRGeometry(info.frame, info.refSpace);
+    occluders.update(scanMesh);
     hunt.update(dt);
     cover.update(dt);
     wabbit.update(dt, playerPos);
@@ -227,6 +232,23 @@ function onFrame(dt, info) {
 
   effects.update(dt);
   worldUI.update();
+  aimAtButtons();
+}
+
+const pickRay = new THREE.Raycaster();
+const rayOrigin = new THREE.Vector3();
+const rayDirection = new THREE.Vector3();
+
+/** Point the controller (or gaze) at the in-world buttons. */
+function aimAtButtons() {
+  if (!worldUI.enabled || !worldUI.buttons.length) return;
+  const source = shotgun.mount === 'controller' ? shotgun.rig.parent : world.camera;
+  if (!source) return;
+  source.getWorldPosition(rayOrigin);
+  rayDirection.set(0, 0, -1)
+    .applyQuaternion(source.getWorldQuaternion(new THREE.Quaternion()));
+  pickRay.set(rayOrigin, rayDirection);
+  worldUI.pick(pickRay);
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,6 +260,8 @@ function pressStart() {
 }
 
 function pressEnd() {
+  // A press aimed at a button is a button press, not a shot.
+  if (worldUI.press()) return;
   if (phase === 'scan') scan.mark();
   else if (phase === 'hunt') hunt.pressEnd();
   else if (phase === 'results' && worldUI.enabled) huntAgain();
@@ -360,6 +384,7 @@ function startHunt() {
   // the scan overlay the player is trying to read.
   occluders.setVisible(true);
   worldUI.hideMain();
+  worldUI.setButtons(huntButtons());
   show('hunt');
   hunt.start();
 }
@@ -385,6 +410,9 @@ async function finishHunt(summary) {
    * well, so it can simply appear over the live camera.
    */
   worldUI.hideHud();
+  worldUI.setButtons(worldUI.enabled
+    ? [{ label: 'Hunt Again', action: () => huntAgain() }]
+    : []);
   if (worldUI.enabled) {
     worldUI.show('The Wabbit Wins', `${summary.score} style points. ${summary.rank}`,
       'Pull the trigger to hunt again');
@@ -392,6 +420,39 @@ async function finishHunt(summary) {
   renderResults(summary);
   show('results');
   sfx.fanfare();
+}
+
+/**
+ * Pause mid-hunt.
+ *
+ * In the DOM this is a screen; in a headset it is the in-world buttons, since
+ * there is no browser chrome inside a session to reach for.
+ */
+function pauseHunt(on) {
+  if (phase !== 'hunt') return;
+  hunt.setPaused(on);
+  if (on) {
+    show('paused');
+    worldUI.show('Paused', 'He\'ll wait. He\'s got all day.');
+    worldUI.setButtons([
+      { label: 'Wesume', action: () => pauseHunt(false) },
+      { label: 'Westawt', action: () => { pauseHunt(false); startHunt(); } },
+      { label: 'End', action: () => { pauseHunt(false); finishHunt(hunt.buildSummary()); } },
+    ]);
+  } else {
+    show('hunt');
+    worldUI.hideMain();
+    worldUI.setButtons(huntButtons());
+  }
+}
+
+/** The standing controls offered during a hunt, for headset players. */
+function huntButtons() {
+  return [
+    { label: 'Pause', action: () => pauseHunt(true) },
+    { label: 'Westawt', action: () => startHunt() },
+    { label: 'End', action: () => finishHunt(hunt.buildSummary()) },
+  ];
 }
 
 /** Play again without touching the session, keeping the scanned room. */
@@ -455,6 +516,13 @@ for (const btn of document.querySelectorAll('[data-goto="title"]')) {
 }
 $('#btn-again').addEventListener('click', huntAgain);
 $('#btn-quit').addEventListener('click', () => finishHunt(hunt.buildSummary()));
+$('#btn-pause').addEventListener('click', () => pauseHunt(true));
+$('#btn-resume').addEventListener('click', () => pauseHunt(false));
+$('#btn-restart').addEventListener('click', () => { pauseHunt(false); startHunt(); });
+$('#btn-end').addEventListener('click', () => {
+  pauseHunt(false);
+  finishHunt(hunt.buildSummary());
+});
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && phase === 'hunt') {

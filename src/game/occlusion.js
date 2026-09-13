@@ -34,21 +34,41 @@ export class Occluders {
     this.group.add(this.mesh);
 
     this._geometry = null;
+    this._scanMesh = null;
+    this.runtime = false;
   }
 
   /**
-   * Adopt the scan's surface. The geometry is shared rather than copied, so
-   * the occluder can never disagree with what the player was shown.
+   * Adopt whatever the scan can offer.
    *
-   * @param {THREE.BufferGeometry|null} geometry
+   * Where the runtime supplies real room geometry, that geometry occludes
+   * directly — it is already posed and tracked, and re-deriving a surface from
+   * points sampled off it only loses fidelity. Our own triangulation is for
+   * the case where all we ever had was points.
+   *
+   * @param {import('./scanmesh.js').ScanMesh} scanMesh
    */
-  update(geometry) {
+  update(scanMesh) {
+    this.runtime = scanMesh.hasRuntimeOccluders;
+    scanMesh.setOccludersVisible(this.runtime && this.group.visible);
+
+    // Our triangulation would only fight the real thing for the depth buffer.
+    this.mesh.visible = !this.runtime;
+    if (this.runtime) return;
+
+    const geometry = scanMesh.surfaceGeometry;
     if (!geometry || geometry === this._geometry) return;
     this._geometry = geometry;
     this.mesh.geometry = geometry;
   }
 
-  setVisible(v) { this.group.visible = v; }
+  setVisible(v) {
+    this.group.visible = v;
+    this._scanMesh?.setOccludersVisible(this.runtime && v);
+  }
+
+  /** Remember the scan so visibility changes can reach the runtime geometry. */
+  attach(scanMesh) { this._scanMesh = scanMesh; }
 
   /** Triangles currently able to hide him. */
   get count() {

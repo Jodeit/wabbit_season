@@ -60,6 +60,7 @@ export class HuntPhase {
     this.currentSpot = null;
     this.holdTime = 0;
     this.holding = false;
+    this.paused = false;
     this.lockout = 0;          // brief input freeze while a gag plays out
   }
 
@@ -84,14 +85,21 @@ export class HuntPhase {
 
   /* ---------------- input ---------------- */
 
+  setPaused(on) {
+    this.paused = on;
+    this.holding = false;
+    this.shotgun.setAds(false);
+    if (on) this.wabbit.setState('hide');
+  }
+
   pressStart() {
-    if (!this.active || this.lockout > 0) return;
+    if (!this.active || this.paused || this.lockout > 0) return;
     this.holding = true;
     this.holdTime = 0;
   }
 
   pressEnd() {
-    if (!this.active) return;
+    if (!this.active || this.paused) return;
     if (!this.holding) return;
     this.holding = false;
     this.shotgun.setAds(false);
@@ -204,7 +212,7 @@ export class HuntPhase {
   /* ---------------- per-frame ---------------- */
 
   update(dt) {
-    if (!this.active) return;
+    if (!this.active || this.paused) return;
     this.time += dt;
     this.lockout = Math.max(0, this.lockout - dt);
 

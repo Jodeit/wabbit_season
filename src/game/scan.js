@@ -25,6 +25,13 @@ const DETECT_EVERY = 0.6;
 /** Seconds to hold a finished scan before starting itself, with no button. */
 const AUTO_START_DELAY = 3;
 
+/** Turn a runtime semantic label into something the hunter would say. */
+function prettyLabel(label) {
+  if (!label) return null;
+  const named = String(label).toLowerCase().replace(/_/g, ' ');
+  return `the ${named.replace(/r/g, 'w')}`;
+}
+
 /**
  * The room-scan phase.
  *
@@ -244,11 +251,23 @@ export class ScanPhase {
     if (!this.scanMesh.sensed || !this.scanMesh.samples.length) return;
 
     const camPos = this.world.camera.getWorldPosition(new THREE.Vector3());
-    const { spots: detected } = detectRoom(
+    this.scanMesh.setFloorY(this.cover.floorY);
+    // What the runtime named beats what we inferred, so it goes first and the
+    // geometric finder only fills in around it.
+    const named = this.scanMesh.semanticSpots(camPos);
+    const { spots: inferred } = detectRoom(
       this.scanMesh.samples, this.cover.floorY, camPos);
-    // The scan's own mesh is the occluder, so the two can never disagree.
+    // Named spots win ties; an inferred one on top of a known couch is the
+    // same couch, described worse.
+    const detected = [...named];
+    for (const spot of inferred) {
+      const duplicate = detected.some((d) =>
+        d.position.distanceTo(spot.position) < (d.kind === spot.kind ? 0.7 : 0.3));
+      if (!duplicate) detected.push(spot);
+    }
+    // The scan's own geometry is the occluder, so the two can never disagree.
     this.scanMesh.rebuild();
-    this.occluders.update(this.scanMesh.surfaceGeometry);
+    this.occluders.update(this.scanMesh);
     if (!detected.length) return;
 
     const manual = this.cover.spots.filter((s) => !s.auto).length;
@@ -263,7 +282,7 @@ export class ScanPhase {
 
     this.cover.removeAuto();
     for (const spot of wanted) {
-      this.cover.add(spot.position, spot.normal, spot.kind, true);
+      this.cover.add(spot.position, spot.normal, spot.kind, true, prettyLabel(spot.label));
     }
     this._renderMarks();
   }

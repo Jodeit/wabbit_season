@@ -203,6 +203,18 @@ A few decisions worth knowing about:
 - **Screen shake never moves the camera.** In WebXR the camera pose belongs to
   the device; yanking it around is both ignored and nauseating. The gun rocks
   and the DOM overlay jolts instead.
+- **When the device names something, believe it.** A headset does not only
+  hand over geometry, it hands over meaning: every plane carries a
+  `semanticLabel` — "couch", "table", "door", "window". Inferring furniture
+  from clusters of points is what you do when nobody told you what anything is.
+  It is also the only way to know a door is a door rather than part of the wall
+  it sits in, which is why doors were previously impossible to detect.
+- **Real geometry occludes directly.** Detected planes and meshes are drawn
+  both as the wireframe you look at and as an unpainted solid behind it. Before,
+  occlusion came from re-triangulating points sampled off that geometry, which
+  is hopeless for a scene mesh — a whole wall can be two triangles — so the
+  wabbit walked through the couch. The scan overlay's *display* half hides for
+  the hunt while the solid half keeps working.
 - **A headset does not scan a room the way a phone does.** It hands over its
   whole space setup at once, as detected planes or a scene mesh, and may offer
   no hit test at all. Every part of the scan used to read from the hit test, so

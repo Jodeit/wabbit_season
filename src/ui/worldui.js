@@ -81,6 +81,86 @@ export class WorldUI {
 
     this._speechAnchor = null;
     this._speechUntil = 0;
+
+    /**
+     * Buttons the controller can point at.
+     *
+     * A headset player has no keyboard, no touchscreen and no browser chrome
+     * inside the session, so without something to aim at there is no way to
+     * pause or start over — the only exit is taking the headset off.
+     */
+    this.buttons = [];
+    this.buttonGroup = new THREE.Group();
+    camera.add(this.buttonGroup);
+    this.buttonGroup.position.set(0, -0.42, -1.3);
+    this._hovered = null;
+  }
+
+  /** @param {Array<{label: string, action: Function}>} items */
+  setButtons(items) {
+    for (const b of this.buttons) {
+      this.buttonGroup.remove(b.panel.mesh);
+      b.panel.texture.dispose();
+    }
+    this.buttons = [];
+    if (!this.enabled) return;
+
+    const width = 0.34;
+    const gap = 0.04;
+    const total = items.length * width + (items.length - 1) * gap;
+    items.forEach((item, i) => {
+      const panel = makePanel(384, 160, width);
+      panel.mesh.position.x = -total / 2 + width / 2 + i * (width + gap);
+      panel.mesh.visible = true;
+      this.buttonGroup.add(panel.mesh);
+      const button = { ...item, panel };
+      this.buttons.push(button);
+      this._paintButton(button, false);
+    });
+  }
+
+  _paintButton(button, hovered) {
+    const { ctx, canvas, texture } = button.panel;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = hovered ? '#ef7a21' : 'rgba(20, 13, 5, 0.9)';
+    roundRect(ctx, 6, 6, w - 12, h - 12, 28);
+    ctx.fill();
+    ctx.strokeStyle = hovered ? '#2a1a08' : 'rgba(246, 231, 200, 0.55)';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.fillStyle = hovered ? '#21150a' : '#f6e7c8';
+    ctx.font = `800 52px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(button.label, w / 2, h / 2, w - 50);
+    ctx.textBaseline = 'alphabetic';
+    texture.needsUpdate = true;
+  }
+
+  /**
+   * Point a ray at the buttons. Returns the one under it, if any.
+   * @param {THREE.Raycaster} raycaster
+   */
+  pick(raycaster) {
+    if (!this.enabled || !this.buttons.length) return null;
+    const meshes = this.buttons.map((b) => b.panel.mesh);
+    const hit = raycaster.intersectObjects(meshes, false)[0];
+    const found = hit ? this.buttons.find((b) => b.panel.mesh === hit.object) : null;
+    if (found !== this._hovered) {
+      if (this._hovered) this._paintButton(this._hovered, false);
+      if (found) this._paintButton(found, true);
+      this._hovered = found ?? null;
+    }
+    return found ?? null;
+  }
+
+  /** Activate whatever is currently under the pointer. */
+  press() {
+    if (!this._hovered) return false;
+    this._hovered.action();
+    return true;
   }
 
   setEnabled(on) {
@@ -89,6 +169,7 @@ export class WorldUI {
       this.main.mesh.visible = false;
       this.hudPanel.mesh.visible = false;
       this.speech.mesh.visible = false;
+      this.setButtons([]);
     }
   }
 
