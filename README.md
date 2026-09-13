@@ -67,10 +67,29 @@ easiest way to get it onto a real phone:
 ## Reginald
 
 He is wide, unhurried, and has never once been in danger. The proportions say
-so before he opens his mouth: wider than he is tall, no neck to speak of, arms
-that do not remotely reach around him, and a belly that keeps moving after the
-rest of him has stopped. The waistcoat and monocle are the only things about
-him that suggest effort.
+so before he opens his mouth: a pear that carries its weight low, no neck to
+speak of, arms that do not remotely reach around him, and a belly that keeps
+moving after the rest of him has stopped. The waistcoat and monocle are the
+only things about him that suggest effort.
+
+He is still nothing but procedural geometry, but not a stack of spheres any
+more. A few things carry the difference:
+
+- **One continuous body.** The torso is a single lathed profile rather than
+  assembled balls — everywhere two spheres met used to leave a crease the eye
+  reads as "made of parts".
+- **Sheen instead of specular.** Three's cloth term gives a soft, wide
+  highlight along grazing angles, which reads as light catching fur rather than
+  as polished plastic.
+- **Fur on the silhouette.** A ruff at the neck (which also hides the seam
+  where head meets body), cheek tufts, ear tufts and a tail of separate clumps.
+  An outline that breaks up is most of what makes an animal look drawn.
+- **Eyes with something behind them.** Large and glossy, with a coloured iris,
+  a deep pupil and a bright catchlight held off-centre. The catchlight in
+  particular is what stops an eye reading as a painted sphere.
+- **Nothing square to the camera.** A head tilt, one ear up and one flopped,
+  brows that lift one at a time, feet turned out. Symmetry was a large part of
+  why he looked manufactured.
 
 He speaks, where the browser can manage it. Lines go through the Web Speech
 API with an English voice, pitched low and slowed down — synthesised for the

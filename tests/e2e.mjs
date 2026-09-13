@@ -801,12 +801,33 @@ try {
   const reggie = await page.evaluate(() => {
     const { wabbit } = window.WabbitSeason;
     const T = window.__THREE;
-    // Measured in his own local space: a world-space bounding box picks up
-    // whatever lean or squash a previous test left him in.
-    const r = wabbit.torso.geometry.parameters.radius;
-    const size = new T.Vector3(
-      r * wabbit.torso.scale.x, r * wabbit.torso.scale.y, r * wabbit.torso.scale.z);
-    const headR = wabbit.head.children[0].geometry.parameters.radius;
+    // Measured from the geometry in his own local space: a world-space
+    // bounding box picks up whatever lean or squash a previous test left him
+    // in, and the body is now a lathe with no single radius to read off.
+    const measure = (mesh) => {
+      mesh.geometry.computeBoundingBox();
+      const s = mesh.geometry.boundingBox.getSize(new T.Vector3());
+      return s.multiply(mesh.scale);
+    };
+    const size = measure(wabbit.torso);
+    const headR = measure(wabbit.head.children[0]).x / 2;
+
+    // Where is he widest? A pear carries its width low; a ball does not.
+    const pos = wabbit.torso.geometry.getAttribute('position');
+    let maxR = 0;
+    let maxRy = 0;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const r = Math.hypot(x, z);
+      if (r > maxR) { maxR = r; maxRy = y; }
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const widestAt = (maxRy - minY) / (maxY - minY);
     wabbit.jiggle = 0;
     wabbit.dodge(1);
     const jiggleOnDodge = wabbit.jiggle;
@@ -814,6 +835,7 @@ try {
     wabbit.update(0.016, new T.Vector3(0, 1.5, 0));
     return {
       wider: +(size.x / size.y).toFixed(2),
+      widestAt: +widestAt.toFixed(2),
       bodyToHead: +(size.x / headR).toFixed(2),
       hasWaistcoat: !!wabbit.waistcoat,
       hasBelly: !!wabbit.belly,
@@ -821,9 +843,35 @@ try {
       bellyMoved: wabbit.belly.scale.x !== before,
     };
   });
-  check('he is wider than he is tall', reggie.wider > 1, `ratio ${reggie.wider}`);
-  check('and considerably wider than his head',
+  // A pear, not a ball: his widest point sits in the lower half.
+  check('he carries his weight low', reggie.widestAt < 0.45,
+    `widest at ${Math.round(reggie.widestAt * 100)}% of his height`);
+  check('and is considerably wider than his head',
     reggie.bodyToHead > 1.5, `body/head ${reggie.bodyToHead}`);
+  check('his body is one continuous surface, not stacked parts',
+    await page.evaluate(() => {
+      const { wabbit } = window.WabbitSeason;
+      return wabbit.torso.geometry.type === 'LatheGeometry';
+    }));
+  check('he has a fur ruff and tufts breaking the silhouette',
+    await page.evaluate(() => {
+      const { wabbit } = window.WabbitSeason;
+      let cones = 0;
+      wabbit.root.traverse((o) => {
+        if (o.geometry?.type === 'ConeGeometry') cones++;
+      });
+      return wabbit.ruff.children.length >= 10 && cones >= 20;
+    }));
+  check('his fur uses a sheen rather than a plastic specular',
+    await page.evaluate(() => window.WabbitSeason.wabbit.torso.material.sheen === 1));
+  check('his eyes have irises and catchlights',
+    await page.evaluate(() => window.WabbitSeason.wabbit.eyes[0].children.length >= 4));
+  check('he is not posed square to the camera',
+    await page.evaluate(() => {
+      const { wabbit } = window.WabbitSeason;
+      // One ear up, one flopped, and a head tilt.
+      return wabbit.earFlop[0] !== wabbit.earFlop[1] && wabbit.head.rotation.z !== 0;
+    }));
   check('he is wearing a waistcoat', reggie.hasWaistcoat);
   check('his belly keeps moving after he does',
     reggie.jiggleOnDodge > 0 && reggie.bellyMoved, JSON.stringify(reggie));
