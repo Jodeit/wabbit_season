@@ -36,7 +36,52 @@ export class Occluders {
     this._geometry = null;
     this._scanMesh = null;
     this.runtime = false;
+
+    /*
+     * Occluders standing in for cover the player marked by hand.
+     *
+     * Where nothing is sensed at all — Safari, with no depth of any kind —
+     * there is no room geometry to hide him behind, and he floats in front of
+     * everything. But a marked spot is not a guess: it is the player pointing
+     * at their own kitchen island and saying "that is a thing to hide behind".
+     * Taking them at their word is the one honest source of occlusion left.
+     */
+    this.marked = new THREE.Group();
+    this.group.add(this.marked);
+    this._markedKey = '';
+    this._markerGeometry = new THREE.PlaneGeometry(0.9, 0.9);
   }
+
+  /**
+   * Build stand-in occluders from spots the player marked.
+   * Only "pop up over" spots: those are the ones with something between the
+   * player and the wabbit. He stands clear of corners and doorways.
+   */
+  updateFromCover(cover) {
+    const surfaces = cover.spots.filter((s) => s.kind === 'surface');
+    const key = surfaces
+      .map((s) => `${s.position.x.toFixed(2)},${s.position.y.toFixed(2)},${s.position.z.toFixed(2)}`)
+      .join('|');
+    if (key === this._markedKey) return;
+    this._markedKey = key;
+
+    for (const child of [...this.marked.children]) this.marked.remove(child);
+    if (this.runtime) return;      // real geometry is already doing this job
+
+    for (const spot of surfaces) {
+      const quad = new THREE.Mesh(this._markerGeometry, this.material);
+      quad.position.copy(spot.position);
+      quad.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), spot.normal);
+      // Dropped slightly, so it hides what is behind the surface without
+      // clipping the feet of whoever is standing on it.
+      quad.position.addScaledVector(spot.normal, -0.04);
+      quad.renderOrder = -10;
+      quad.frustumCulled = false;
+      this.marked.add(quad);
+    }
+  }
+
+  get markedCount() { return this.marked.children.length; }
 
   /**
    * Adopt whatever the scan can offer.

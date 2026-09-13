@@ -279,6 +279,21 @@ A few decisions worth knowing about:
   controller takes it when one exists. Its framing also comes from the live
   projection matrix rather than `camera.fov`, which WebXR never updates —
   reading the stale value puts the gun off the side of a headset's view.
+- **A hit test traces lines, not grids.** It returns one ray per frame, so
+  sweeping a wall leaves thin lines of samples with gaps between them. At
+  sampling resolution those lines never close a square of four corners, no quad
+  is emitted, and the surface comes out *empty* — which is how a device sensing
+  the room perfectly well ended up occluding nothing at all. The triangulation
+  grid is therefore coarser than the sampling grid, and gaps between
+  observations are closed where a cell has neighbours on opposite sides. That
+  is interpolating between measurements; a lone cell out on its own still stays
+  empty, which is the difference between closing a hole and inventing a room.
+- **Where nothing is sensed, the player's own marks occlude.** In Safari there
+  is no depth of any kind, so there is no room geometry to hide him behind and
+  he floats in front of everything. But a marked spot is not a guess — it is
+  the player pointing at their own kitchen island and saying "that is a thing
+  to hide behind". Taking them at their word is the one honest source of
+  occlusion left, so each "pop up over" mark becomes a stand-in occluder.
 - **Occlusion is the scan mesh itself, never a fitted shape.** Fitting a
   rectangle around each cluster of samples is cheap and wrong: a bounding box
   spans everything between its corners, including the parts of the room nothing

@@ -17,8 +17,19 @@ import * as THREE from 'three';
  * depiction of a part of the room that was never swept.
  */
 
-const CELL = 0.07;        // must match the sampling grid
+/*
+ * The triangulation grid is deliberately coarser than the sampling grid.
+ *
+ * A hit test delivers one ray per frame, so sweeping a wall traces thin lines
+ * of samples with gaps between them. At sampling resolution those lines never
+ * form a contiguous square of four corners, no quad is ever emitted, and the
+ * surface comes out empty — which is exactly how a device that was sensing
+ * the room perfectly well ended up occluding nothing at all.
+ */
+const GRID = 0.13;
 const SLAB = 0.35;        // separates parallel surfaces (two walls, floor/bed)
+/** Passes of hole-filling between observed cells. */
+const CLOSE_PASSES = 2;
 
 /** Which way does this normal mostly point: 0 = x, 1 = y, 2 = z. */
 function dominantAxis(n) {
@@ -60,7 +71,7 @@ export function buildSurfaceGeometry(samples) {
     }
 
     const [u, v] = SPAN[axis];
-    const cellKey = `${Math.round(p[u] / CELL)},${Math.round(p[v] / CELL)}`;
+    const cellKey = `${Math.round(p[u] / GRID)},${Math.round(p[v] / GRID)}`;
     const cell = sheet.cells.get(cellKey);
     if (cell) {
       // Average repeats, which smooths sensor noise a little.
@@ -70,6 +81,9 @@ export function buildSurfaceGeometry(samples) {
       sheet.cells.set(cellKey, { sum: p.clone(), count: 1 });
     }
   }
+
+  // --- bridge the gaps between sweep lines -------------------------------
+  for (const sheet of sheets.values()) closeHoles(sheet);
 
   // --- triangulate each sheet across its own grid -----------------------
   const positions = [];
@@ -107,4 +121,47 @@ export function buildSurfaceGeometry(samples) {
   return geometry;
 }
 
-export { CELL as SURFACE_CELL };
+/**
+ * Fill cells that sit between observations.
+ *
+ * A cell with occupied neighbours on opposite sides is a gap in a surface that
+ * was genuinely seen either side of it, so filling it interpolates between
+ * measurements rather than inventing them. A cell out on its own stays empty:
+ * that is the difference between closing a hole and making up a room.
+ */
+function closeHoles(sheet) {
+  for (let pass = 0; pass < CLOSE_PASSES; pass++) {
+    const added = [];
+    const seen = new Set();
+
+    for (const key of sheet.cells.keys()) {
+      const [ci, cj] = key.split(',').map(Number);
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const i = ci + di;
+        const j = cj + dj;
+        const candidate = `${i},${j}`;
+        if (sheet.cells.has(candidate) || seen.has(candidate)) continue;
+        seen.add(candidate);
+
+        const left = sheet.cells.get(`${i - 1},${j}`);
+        const right = sheet.cells.get(`${i + 1},${j}`);
+        const down = sheet.cells.get(`${i},${j - 1}`);
+        const up = sheet.cells.get(`${i},${j + 1}`);
+        const neighbours = [left, right, down, up].filter(Boolean);
+
+        // Spanned on an axis, or nearly surrounded.
+        const spanned = (left && right) || (down && up);
+        if (!spanned && neighbours.length < 3) continue;
+
+        const sum = new THREE.Vector3();
+        for (const n of neighbours) sum.addScaledVector(n.sum, 1 / n.count);
+        added.push([candidate, { sum: sum.divideScalar(neighbours.length), count: 1 }]);
+      }
+    }
+
+    if (!added.length) break;
+    for (const [key, cell] of added) sheet.cells.set(key, cell);
+  }
+}
+
+export { GRID as SURFACE_CELL };

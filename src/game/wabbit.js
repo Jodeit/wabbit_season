@@ -175,27 +175,36 @@ export class Wabbit {
 
     // A paler front, sunk into the body so there is no edge where it meets.
     const belly = new THREE.Mesh(lathe([
-      [0.03, 0.058], [0.07, 0.096], [0.12, 0.120], [0.17, 0.126],
-      [0.22, 0.118], [0.27, 0.096], [0.31, 0.062], [0.33, 0.000],
+      [0.02, 0.062], [0.06, 0.104], [0.10, 0.130], [0.15, 0.138],
+      [0.20, 0.130], [0.25, 0.108], [0.29, 0.070], [0.31, 0.000],
     ]), fur(CREAM, { sheenColor: 0xffffff }));
-    belly.scale.set(1.05, 1, 0.55);
-    belly.position.set(0, 0.012, 0.095);
+    belly.scale.set(1.06, 1, 0.62);
+    belly.position.set(0, 0.012, 0.098);
     this.body.add(belly);
     this.belly = belly;
 
-    // A waistcoat, because he is a gentleman, whatever else he may be.
-    const waistcoat = new THREE.Mesh(
-      new THREE.TorusGeometry(0.166, 0.034, 12, 32), mat(BURGUNDY, { roughness: 0.6 }));
-    waistcoat.rotation.x = Math.PI / 2;
-    waistcoat.position.set(0, 0.145, 0.005);
-    waistcoat.scale.set(1.02, 1, 0.94);
+    /*
+     * A waistcoat, because he is a gentleman, whatever else he may be.
+     *
+     * A band around his middle read as a rubber ring. A waistcoat is a
+     * garment over the chest that gave up somewhere above the belly, so it is
+     * lathed as a shell hugging the upper torso and stopping short — the
+     * belly escaping underneath is the point.
+     */
+    const waistcoat = new THREE.Mesh(lathe([
+      [0.27, 0.180], [0.32, 0.163], [0.37, 0.134],
+      [0.41, 0.105], [0.44, 0.081],
+    ]), new THREE.MeshStandardMaterial({
+      color: BURGUNDY, roughness: 0.72, metalness: 0, side: THREE.DoubleSide,
+    }));
+    waistcoat.scale.set(1.02, 1, 0.97);
     this.body.add(waistcoat);
     this.waistcoat = waistcoat;
 
     for (let i = 0; i < 3; i++) {
       const button = new THREE.Mesh(
-        new THREE.SphereGeometry(0.0125, 12, 12), mat(BRASS, { roughness: 0.3 }));
-      button.position.set(0, 0.232 - i * 0.04, 0.128 - i * 0.012);
+        new THREE.SphereGeometry(0.0115, 12, 12), mat(BRASS, { roughness: 0.3 }));
+      button.position.set(0, 0.40 - i * 0.045, 0.112 + i * 0.028);
       this.body.add(button);
     }
 
@@ -291,10 +300,10 @@ export class Wabbit {
     head.add(nose);
     this.nose = nose;
 
-    const teeth = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.046, 0.015),
+    const teeth = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.038, 0.013),
       mat(0xfdfdfa, { roughness: 0.3 }));
-    teeth.position.set(0, -0.098, 0.168);
-    teeth.rotation.x = 0.12;
+    teeth.position.set(0, -0.092, 0.156);
+    teeth.rotation.x = 0.16;
     head.add(teeth);
 
     // Cheek tufts: fur that catches the light at the silhouette.
@@ -560,7 +569,7 @@ export class Wabbit {
     this.jiggle = damp(this.jiggle, 0, 3.4, dt);
     const wobble = Math.sin(this.t * 17) * this.jiggle;
     this.belly.scale.set(1 + wobble, 1 - wobble * 0.7, 0.62 + wobble * 0.4);
-    this.waistcoat.scale.set(1.02 + wobble * 0.8, 1 - wobble * 0.5, 0.94);
+    this.waistcoat.scale.set(1.02 + wobble * 0.8, 1 - wobble * 0.5, 0.97 + wobble * 0.4);
     this.torso.scale.set(1 + wobble * 0.5, 1 - wobble * 0.4, 0.94 + wobble * 0.3);
 
     for (let i = 0; i < this.ears.length; i++) {

@@ -503,6 +503,51 @@ try {
   check('the shadow fades as he ducks away', shadow.down < 0.05);
   check('the shadow stays on the surface, not on his body', shadow.parent);
 
+  console.log('\n• occlusion from a swept hit test');
+  // What a hit-test-only runtime really delivers: one ray per frame, tracing
+  // thin lines across a wall rather than filling a grid. At sampling
+  // resolution those lines never close a square of four corners, so the
+  // surface came out empty and the device occluded nothing at all.
+  const swept = await page.evaluate(() => {
+    const { scanMesh } = window.WabbitSeason;
+    const T = window.__THREE;
+    scanMesh.clear();
+    const n = new T.Vector3(0, 0, 1);
+    for (let pass = 0; pass < 3; pass++) {
+      const y = 0.6 + pass * 0.35;
+      for (let x = -1.2; x <= 1.2; x += 0.09) {
+        scanMesh.addPoint(new T.Vector3(x, y + Math.sin(x * 3) * 0.04, -2), true, n);
+      }
+    }
+    scanMesh.rebuild();
+    const pos = scanMesh.surfaceGeometry?.getAttribute('position');
+    return { samples: scanMesh.samples.length, triangles: pos ? pos.count / 3 : 0 };
+  });
+  console.log(`        ${swept.samples} swept samples -> ${swept.triangles} triangles`);
+  check('sparse sweep lines still build an occluding surface',
+    swept.triangles > 0, `${swept.triangles} triangles from ${swept.samples} samples`);
+
+  console.log('\n• occlusion with nothing sensed at all');
+  const standIns = await page.evaluate(() => {
+    const { occluders, cover, scanMesh } = window.WabbitSeason;
+    const T = window.__THREE;
+    scanMesh.clear();
+    cover.clear();
+    occluders.runtime = false;
+    // The player pointing at their own kitchen island is real information.
+    cover.add(new T.Vector3(0, 0.9, -2), new T.Vector3(0, 1, 0), 'surface');
+    cover.add(new T.Vector3(1.5, 0.1, -2), new T.Vector3(0, 0, 1), 'corner');
+    occluders.updateFromCover(cover);
+    return {
+      count: occluders.markedCount,
+      colorWrite: occluders.marked.children[0]?.material.colorWrite,
+    };
+  });
+  check('cover the player marked also hides him', standIns.count === 1,
+    `${standIns.count} stand-in occluders`);
+  check('and those stand-ins paint nothing either',
+    standIns.colorWrite === false, JSON.stringify(standIns));
+
   console.log('\n• results and replay');
   await page.click('#btn-quit');
   await page.waitForTimeout(900);

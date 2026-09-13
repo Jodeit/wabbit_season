@@ -268,6 +268,7 @@ export class ScanPhase {
     // The scan's own geometry is the occluder, so the two can never disagree.
     this.scanMesh.rebuild();
     this.occluders.update(this.scanMesh);
+    this.occluders.updateFromCover(this.cover);
     if (!detected.length) return;
 
     const manual = this.cover.spots.filter((s) => !s.auto).length;

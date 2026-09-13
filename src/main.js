@@ -230,6 +230,7 @@ function onFrame(dt, info) {
     // occluders have to keep up rather than being frozen at scan time.
     scanMesh.syncXRGeometry(info.frame, info.refSpace);
     occluders.update(scanMesh);
+    occluders.updateFromCover(cover);
     hunt.update(dt);
     cover.update(dt);
     wabbit.update(dt, playerPos);
@@ -555,7 +556,7 @@ diagnostics.install(() => ({
   supportMode,
   coverSpots: cover.count,
   scanSource: scanMesh.source,
-  occluders: occluders.count,
+  occluders: `${occluders.count} tri / ${occluders.markedCount} marked`,
   voice: voiceAvailable() ? `${voiceName()} (${voiceEnabled() ? 'on' : 'off'})` : 'unavailable',
   scanPatches: scanMesh.pointCount,
   scanSensed: scanMesh.sensed,
