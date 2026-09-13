@@ -4,8 +4,9 @@ An augmented-reality cartoon hunting parody that runs in a web browser.
 
 Scan your actual living room with your phone's camera, mark the furniture a
 rabbit could plausibly duck behind, then shoulder a virtual double-barrel and
-try to shoot **Wascal P. Wabbit** as he pops up from behind your kitchen
-island, the end of your bed, or around the corner.
+try to shoot **Reginald Warren, Esq.** — a very large, very British rabbit in a
+waistcoat and monocle — as he pops up from behind your kitchen island, the end
+of your bed, or around the corner.
 
 You will miss. Every single time. That is the entire game — you're scored on
 how spectacularly you fail, not on hitting anything.
@@ -62,6 +63,29 @@ easiest way to get it onto a real phone:
    barrels; the brass bead is your sight. Release to fire.
 5. **Miss.** He ducks, catches the buckshot in his teeth, bunts it with a
    carrot, ties your barrels in a knot, or holds up a sign reading DUCK SEASON.
+
+## Reginald
+
+He is wide, unhurried, and has never once been in danger. The proportions say
+so before he opens his mouth: wider than he is tall, no neck to speak of, arms
+that do not remotely reach around him, and a belly that keeps moving after the
+rest of him has stopped. The waistcoat and monocle are the only things about
+him that suggest effort.
+
+He speaks, where the browser can manage it. Lines go through the Web Speech
+API with an English voice, pitched low and slowed down — synthesised for the
+same reason every other sound here is: no asset files, and a rabbit who only
+ever says ten recorded things stops being funny on the eleventh.
+
+Voice support is uneven. Some browsers ship no voices at all, most load them
+asynchronously, and iOS refuses to speak until it has seen a user gesture (the
+start tap is used to open that door). All of it degrades to silence, and the
+captions carry every line regardless. There is an on/off toggle on the title
+screen, remembered between visits.
+
+The hunter's own Fudd-ish muttering is deliberately left alone. The contrast
+between an American cartoon hunter and a rabbit who offers him tea is most of
+the joke.
 
 ## Device support
 
@@ -319,6 +343,6 @@ effects clean up after themselves, and that the camera is released at the end.
 
 ## About the parody
 
-Wascal P. Wabbit and his exasperated hunter are an affectionate send-up of a
-very old cartoon rivalry. The characters, dialogue, artwork and sounds here are
+Reginald Warren, Esq. and his exasperated hunter are an affectionate send-up of
+a very old cartoon rivalry. The characters, dialogue, artwork and sounds here are
 all original to this project — no studio assets are used, referenced or bundled.

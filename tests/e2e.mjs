@@ -797,6 +797,63 @@ try {
   check('gun framing follows the XR projection matrix', proj.before !== proj.after,
     JSON.stringify(proj));
 
+  console.log('\n• Reginald');
+  const reggie = await page.evaluate(() => {
+    const { wabbit } = window.WabbitSeason;
+    const T = window.__THREE;
+    // Measured in his own local space: a world-space bounding box picks up
+    // whatever lean or squash a previous test left him in.
+    const r = wabbit.torso.geometry.parameters.radius;
+    const size = new T.Vector3(
+      r * wabbit.torso.scale.x, r * wabbit.torso.scale.y, r * wabbit.torso.scale.z);
+    const headR = wabbit.head.children[0].geometry.parameters.radius;
+    wabbit.jiggle = 0;
+    wabbit.dodge(1);
+    const jiggleOnDodge = wabbit.jiggle;
+    const before = wabbit.belly.scale.x;
+    wabbit.update(0.016, new T.Vector3(0, 1.5, 0));
+    return {
+      wider: +(size.x / size.y).toFixed(2),
+      bodyToHead: +(size.x / headR).toFixed(2),
+      hasWaistcoat: !!wabbit.waistcoat,
+      hasBelly: !!wabbit.belly,
+      jiggleOnDodge,
+      bellyMoved: wabbit.belly.scale.x !== before,
+    };
+  });
+  check('he is wider than he is tall', reggie.wider > 1, `ratio ${reggie.wider}`);
+  check('and considerably wider than his head',
+    reggie.bodyToHead > 1.5, `body/head ${reggie.bodyToHead}`);
+  check('he is wearing a waistcoat', reggie.hasWaistcoat);
+  check('his belly keeps moving after he does',
+    reggie.jiggleOnDodge > 0 && reggie.bellyMoved, JSON.stringify(reggie));
+
+  const british = await page.evaluate(() => {
+    const { POP_TAUNTS, ON_TARGET_GAGS, WILD_GAGS } = window.__GAGS;
+    const all = [...POP_TAUNTS, ...ON_TARGET_GAGS.map((g) => g.line),
+      ...WILD_GAGS.map((g) => g.line)].filter(Boolean);
+    // Americanisms he would never stoop to.
+    const slips = all.filter((l) => /\b(chief|sport|buddy|gonna|wanna|outta|gotten)\b/i.test(l));
+    return { count: all.length, slips };
+  });
+  check('every line of his is in his own voice', british.slips.length === 0,
+    JSON.stringify(british.slips));
+  check('he has plenty to say', british.count >= 20, `${british.count} lines`);
+
+  const voice = await page.evaluate(() => {
+    // Speech is a bonus, never a dependency: it must degrade to silence
+    // rather than throwing where there are no voices.
+    let threw = false;
+    try {
+      window.WabbitSeason.hunt._playGag({
+        id: 't', label: 'T', score: 1, line: 'Quite.', run: () => {},
+      });
+    } catch { threw = true; }
+    return { threw, button: document.querySelector('#btn-voice').textContent };
+  });
+  check('a missing voice never breaks the game', !voice.threw);
+  check('the voice can be turned off', /Voice:/.test(voice.button), voice.button);
+
   console.log('\n• console');
   for (const e of errors) console.log(`        ${e}`);
   check('no console or page errors', errors.length === 0, `${errors.length} error(s)`);

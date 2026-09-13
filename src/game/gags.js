@@ -21,7 +21,7 @@ export const ON_TARGET_GAGS = [
     id: 'duck',
     label: 'He Ducked',
     score: 120,
-    line: 'Missed me by *that* much, chief.',
+    line: 'Oh, bad luck. Miles off.',
     run: ({ wabbit, fx }) => {
       wabbit.dodge(0);
       wabbit.setEmerge(0.06);
@@ -34,7 +34,7 @@ export const ON_TARGET_GAGS = [
     id: 'teeth',
     label: 'Caught It In His Teeth',
     score: 260,
-    line: 'Mmf — needs salt.',
+    line: 'Mm. Wants salt.',
     run: ({ wabbit, fx }) => {
       wabbit.setState('chew');
       fx.pellets({ toWabbit: true });
@@ -46,7 +46,7 @@ export const ON_TARGET_GAGS = [
     id: 'bent',
     label: 'Barrel Tied In A Knot',
     score: 300,
-    line: 'You might wanna get that looked at.',
+    line: 'You\'ll want to get that seen to.',
     run: ({ shotgun, fx }) => {
       shotgun.setBent(true);
       sfx.boing();
@@ -59,7 +59,7 @@ export const ON_TARGET_GAGS = [
     id: 'carrot',
     label: 'Bunted It With A Cawwot',
     score: 240,
-    line: 'And it is outta here!',
+    line: 'And that, I think, is four runs.',
     run: ({ wabbit, fx }) => {
       wabbit.dodge(-0.5);
       fx.pellets({ deflect: true });
@@ -71,7 +71,7 @@ export const ON_TARGET_GAGS = [
     id: 'sign',
     label: 'Wrong Season, Appawently',
     score: 210,
-    line: 'Says right here: DUCK season.',
+    line: 'It says quite clearly: duck season.',
     run: ({ fx }) => {
       fx.sign('DUCK\nSEASON');
       fx.pellets({ wide: true });
@@ -83,7 +83,7 @@ export const ON_TARGET_GAGS = [
     id: 'decoy',
     label: 'You Shot A Cardboawd Cutout',
     score: 280,
-    line: 'Over here, sport.',
+    line: 'Over here, old boy.',
     run: ({ fx }) => {
       fx.decoyFall();
       sfx.whistleDown();
@@ -94,7 +94,7 @@ export const ON_TARGET_GAGS = [
     id: 'ricochet',
     label: 'Wicochet! Wight Off Youw Head',
     score: 190,
-    line: 'That is gonna leave a mark.',
+    line: 'Ooh. That will smart.',
     run: ({ fx }) => {
       fx.pellets({ ricochet: true });
       sfx.ricochet();
@@ -117,7 +117,7 @@ export const ON_TARGET_GAGS = [
     id: 'tunnel',
     label: 'He Dug A Tunnel',
     score: 230,
-    line: 'Shoulda taken that left turn.',
+    line: 'Should have taken that left at Basingstoke.',
     run: ({ wabbit, fx }) => {
       wabbit.setState('hide');
       sfx.duck();
@@ -128,7 +128,7 @@ export const ON_TARGET_GAGS = [
     id: 'anvil',
     label: 'Anvil. Obviously.',
     score: 350,
-    line: 'Heads up, chief!',
+    line: 'Mind your head!',
     run: ({ fx }) => {
       sfx.whistleDown();
       setTimeout(() => { sfx.bonk(); fx.shake(1.6); fx.stars(); fx.soot(); }, 560);
@@ -141,28 +141,28 @@ export const WILD_GAGS = [
     id: 'wide',
     label: 'Not Even Cwose',
     score: 15,
-    line: 'Were you aiming at the lamp?',
+    line: 'Was that at me, or the lamp?',
     run: ({ fx }) => { fx.pellets({ wide: true }); },
   },
   {
     id: 'ceiling',
     label: 'You Shot The Ceiling',
     score: 20,
-    line: 'The ceiling was unarmed, chief.',
+    line: 'The ceiling was unarmed, you know.',
     run: ({ fx }) => { fx.pellets({ high: true }); fx.dust(); },
   },
   {
     id: 'floor',
     label: 'You Shot The Floow',
     score: 20,
-    line: 'Floor had it coming, I guess.',
+    line: 'The floor had it coming, I\'m sure.',
     run: ({ fx }) => { fx.pellets({ low: true }); fx.dust(); },
   },
   {
     id: 'hip',
     label: 'Fiwed Fwom The Hip. Bold.',
     score: 35,
-    line: 'Ooh, a gunslinger.',
+    line: 'Ooh. From the hip. Very cavalier.',
     run: ({ fx }) => { fx.pellets({ wide: true }); fx.shake(0.5); },
   },
 ];
@@ -170,7 +170,7 @@ export const WILD_GAGS = [
 /** Fired at nothing at all — no wabbit in sight. */
 export const EMPTY_GAGS = [
   { id: 'nobody', label: 'Nothing There', score: 5, line: 'Talking to yourself again?' },
-  { id: 'jumpy', label: 'Jumpy, Awen\'t We', score: 5, line: 'Easy, chief. It was a curtain.' },
+  { id: 'jumpy', label: 'Jumpy, Awen\'t We', score: 5, line: 'Steady on. It was a curtain.' },
 ];
 
 const nextOnTarget = makeShuffler(ON_TARGET_GAGS.map((g) => g.id));
@@ -197,18 +197,26 @@ export function chooseGag(shot) {
 /* dialogue                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Things the wabbit says when he pops up. */
+/**
+ * Things Reginald says when he pops up.
+ *
+ * He is a large, unhurried English gentleman who has never once been in
+ * danger and knows it. The hunter's own Fudd-ish muttering is left alone —
+ * the contrast between the two is most of the joke.
+ */
 export const POP_TAUNTS = [
-  'Ehhh… what\'s cookin\', chief?',
-  'Lookin\' for someone?',
-  'You call that a hunting rifle?',
-  'Nice hat. Very sneaky.',
-  'I\'ll be right here. Promise.',
-  'Take your time. I\'ve got all day.',
-  'Ooh, he\'s got the good shells out.',
-  'Psst. Behind you. …made you look.',
-  'You do know I do this for a living?',
-  'Say, is this your kitchen? It\'s lovely.',
+  'Ah. You again.',
+  'Frightfully sorry — were you aiming?',
+  'One moment, I\'m having my elevenses.',
+  'Lovely home. Dreadful hunting.',
+  'Oh, don\'t mind me. Do carry on.',
+  'Splendid gun. Shame about the chap holding it.',
+  'You haven\'t hit anything yet, have you. Be honest.',
+  'Take your time. I\'m on my holidays.',
+  'Is this a hunt, or are we simply spending time together?',
+  'Right then. Off you pop.',
+  'You have the look of a man about to miss.',
+  'I\'d offer you tea, but you seem busy.',
 ];
 
 /** Things the hunter mutters to himself. */

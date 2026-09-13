@@ -13,6 +13,9 @@ import { Effects } from './game/effects.js';
 import { ScanPhase } from './game/scan.js';
 import { HuntPhase } from './game/hunt.js';
 import { initAudio, sfx } from './audio/sfx.js';
+import {
+  initVoice, say, setVoiceEnabled, voiceAvailable, voiceEnabled, voiceName, warmVoice,
+} from './audio/voice.js';
 import { fatal, setBanterMirror, show, toast } from './ui/screens.js';
 import * as diagnostics from './ui/diagnostics.js';
 import { WorldUI } from './ui/worldui.js';
@@ -122,6 +125,9 @@ function offerXRViewer() {
 
 async function beginHunt() {
   initAudio();
+  // iOS will not speak at all until speechSynthesis is touched inside a real
+  // interaction, so the start tap is the only chance to open that door.
+  warmVoice();
 
   try {
     backend = supportMode === 'webxr'
@@ -505,6 +511,19 @@ function renderResults(s) {
 
 $('#btn-start').addEventListener('click', beginHunt);
 $('#btn-howto').addEventListener('click', () => show('howto'));
+
+function refreshVoiceButton() {
+  const btn = $('#btn-voice');
+  if (!btn) return;
+  btn.textContent = `Weginald's Voice: ${voiceEnabled() ? 'On' : 'Off'}`;
+  btn.disabled = !voiceAvailable();
+  if (!voiceAvailable()) btn.textContent = 'Weginald\'s Voice: unavailable here';
+}
+$('#btn-voice').addEventListener('click', () => {
+  setVoiceEnabled(!voiceEnabled());
+  refreshVoiceButton();
+  if (voiceEnabled()) say('Ah. There you are.');
+});
 for (const btn of document.querySelectorAll('[data-goto="title"]')) {
   btn.addEventListener('click', async () => {
     if (backend) {
@@ -537,10 +556,16 @@ diagnostics.install(() => ({
   coverSpots: cover.count,
   scanSource: scanMesh.source,
   occluders: occluders.count,
+  voice: voiceAvailable() ? `${voiceName()} (${voiceEnabled() ? 'on' : 'off'})` : 'unavailable',
   scanPatches: scanMesh.pointCount,
   scanSensed: scanMesh.sensed,
   realGeometry: scanMesh.planeCount,
 }));
+
+initVoice();
+// Voice lists load asynchronously in most browsers.
+setTimeout(refreshVoiceButton, 400);
+refreshVoiceButton();
 
 probeSupport();
 show('title');

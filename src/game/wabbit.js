@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { clamp, damp, lerp, rand } from '../core/util.js';
 
 /**
- * Wascal P. Wabbit — built entirely from primitives so the game ships with no
- * model files. He is a stack of spheres with an attitude problem.
+ * Reginald Warren, Esq. — built entirely from primitives so the game ships
+ * with no model files. He is a stack of spheres in a waistcoat, and he is not
+ * remotely worried about you.
  *
  * Local space: feet at y=0, facing +Z, roughly 0.62m tall standing.
  */
 
+const BURGUNDY = 0x7d2233;
+const BRASS = 0xc9a227;
 const GREY = 0xa9adb4;
 const GREY_DARK = 0x7e838b;
 const CREAM = 0xf3ece0;
@@ -64,6 +67,7 @@ export class Wabbit {
     this.targetLean = 0;
     this.squash = 1;
     this.chewing = false;
+    this.jiggle = 0;
     this.visibleRadius = 0.22;
     this.emergeMode = 'surface';   // surface | corner | door
     this.sideSign = 1;
@@ -107,58 +111,77 @@ export class Wabbit {
   }
 
   _buildBody() {
-    const torso = sphere(0.15, GREY);
-    torso.scale.set(1, 1.15, 0.92);
+    // Proportions of a rabbit who has not been chased in some years: wide,
+    // low, and entirely without a neck.
+    const torso = sphere(0.185, GREY);
+    torso.scale.set(1.06, 0.98, 0.96);
     torso.position.y = 0.2;
     this.body.add(torso);
     this.torso = torso;
 
-    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 16), mat(CREAM));
-    belly.scale.set(1, 1.12, 0.8);
-    belly.position.set(0, 0.19, 0.075);
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 18), mat(CREAM));
+    belly.scale.set(1.02, 0.96, 0.82);
+    belly.position.set(0, 0.185, 0.075);
     this.body.add(belly);
+    this.belly = belly;
 
-    // Feet: oversized, as tradition demands.
+    // A waistcoat, because he is a gentleman, whatever else he may be.
+    const waistcoat = new THREE.Mesh(
+      new THREE.TorusGeometry(0.168, 0.038, 10, 28), mat(BURGUNDY));
+    waistcoat.rotation.x = Math.PI / 2;
+    waistcoat.position.set(0, 0.17, 0.01);
+    waistcoat.scale.set(1.04, 1, 0.92);
+    this.body.add(waistcoat);
+    this.waistcoat = waistcoat;
+
+    for (let i = 0; i < 3; i++) {
+      const button = new THREE.Mesh(
+        new THREE.SphereGeometry(0.013, 10, 10), mat(BRASS, { roughness: 0.3 }));
+      button.position.set(0, 0.235 - i * 0.045, 0.152 - i * 0.004);
+      this.body.add(button);
+    }
+
+    // Feet: wide apart, because the belly insists.
     for (const side of [-1, 1]) {
-      const foot = sphere(0.055, GREY_DARK, 14);
-      foot.scale.set(1, 0.7, 1.9);
-      foot.position.set(side * 0.075, 0.045, 0.055);
+      const foot = sphere(0.062, GREY_DARK, 14);
+      foot.scale.set(1, 0.66, 1.85);
+      foot.position.set(side * 0.098, 0.048, 0.06);
       this.body.add(foot);
     }
 
-    // Arms, parented so they can hold the carrot / wave a sign.
+    // Stubby arms that do not remotely reach around him.
     this.arms = [];
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
-      pivot.position.set(side * 0.135, 0.26, 0.02);
-      const arm = sphere(0.04, GREY, 12);
-      arm.scale.set(1, 1.8, 1);
-      arm.position.y = -0.055;
+      pivot.position.set(side * 0.172, 0.25, 0.02);
+      const arm = sphere(0.042, GREY, 12);
+      arm.scale.set(1, 1.35, 1);
+      arm.position.y = -0.045;
       pivot.add(arm);
-      pivot.rotation.z = side * 0.25;
+      pivot.rotation.z = side * 0.42;
       this.body.add(pivot);
       this.arms.push(pivot);
     }
 
-    const tail = sphere(0.05, CREAM, 12);
-    tail.position.set(0, 0.2, -0.145);
+    const tail = sphere(0.058, CREAM, 12);
+    tail.position.set(0, 0.2, -0.178);
     this.body.add(tail);
   }
 
   _buildHead() {
     const head = new THREE.Group();
-    head.position.y = 0.42;
+    head.position.y = 0.405;
     this.body.add(head);
     this.head = head;
 
-    const skull = sphere(0.105, GREY);
-    skull.scale.set(1, 0.95, 1.05);
+    const skull = sphere(0.112, GREY);
+    skull.scale.set(1.04, 0.94, 1.02);
     head.add(skull);
 
     // Cheeks — the wide, smug muzzle.
     for (const side of [-1, 1]) {
-      const cheek = sphere(0.052, CREAM, 14);
-      cheek.position.set(side * 0.042, -0.032, 0.082);
+      const cheek = sphere(0.06, CREAM, 14);
+      cheek.position.set(side * 0.047, -0.034, 0.082);
       head.add(cheek);
     }
 
@@ -194,6 +217,27 @@ export class Wabbit {
       this.lids.push(lid);
     }
 
+    // A monocle. Entirely impractical, which is rather the point.
+    const monocle = new THREE.Mesh(
+      new THREE.TorusGeometry(0.033, 0.005, 8, 24), mat(BRASS, { roughness: 0.25 }));
+    monocle.position.set(0.048, 0.032, 0.106);
+    head.add(monocle);
+    const lens = new THREE.Mesh(
+      new THREE.CircleGeometry(0.031, 20),
+      new THREE.MeshStandardMaterial({
+        color: 0xdff0ff, transparent: true, opacity: 0.24, roughness: 0.1,
+      })
+    );
+    lens.position.copy(monocle.position);
+    lens.position.z += 0.001;
+    head.add(lens);
+
+    const chain = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0022, 0.0022, 0.15, 6), mat(BRASS));
+    chain.position.set(0.086, -0.035, 0.088);
+    chain.rotation.z = 0.42;
+    head.add(chain);
+
     // Ears on pivots so they can flop, perk and wiggle independently.
     this.ears = [];
     for (const side of [-1, 1]) {
@@ -223,7 +267,7 @@ export class Wabbit {
       leaf.rotation.z = (i - 1) * 0.4;
       carrot.add(leaf);
     }
-    carrot.position.set(0.13, 0.2, 0.06);
+    carrot.position.set(0.205, 0.225, 0.115);
     carrot.rotation.z = -0.5;
     this.body.add(carrot);
     this.carrot = carrot;
@@ -250,6 +294,8 @@ export class Wabbit {
   }
 
   setEmerge(v, immediate = false) {
+    // Arriving anywhere sets the belly going.
+    if (Math.abs(clamp(v, 0, 1) - this.targetEmerge) > 0.4) this.jiggle = 0.09;
     this.targetEmerge = clamp(v, 0, 1);
     if (immediate) {
       this.emergeAmount = this.targetEmerge;
@@ -306,6 +352,7 @@ export class Wabbit {
   dodge(direction = Math.sign(rand(-1, 1)) || 1) {
     this.targetLean = direction * 1.15;
     this.squash = 0.78;
+    this.jiggle = 0.12;
     this.setState('dodge');
   }
 
@@ -328,9 +375,16 @@ export class Wabbit {
     }
 
     // Idle breathing + ear sway.
-    const breath = Math.sin(this.t * 3.1) * 0.012;
+    // Slower, deeper breathing: there is a lot of rabbit to move.
+    const breath = Math.sin(this.t * 2.2) * 0.016;
     this.torso.position.y = 0.2 + breath;
-    this.head.position.y = 0.42 + breath * 1.4;
+    this.head.position.y = 0.405 + breath * 1.2;
+
+    // The belly keeps moving after the rest of him has stopped.
+    this.jiggle = damp(this.jiggle, 0, 3.4, dt);
+    const wobble = Math.sin(this.t * 17) * this.jiggle;
+    this.belly.scale.set(1.02 + wobble, 0.96 - wobble * 0.7, 0.82 + wobble * 0.5);
+    this.waistcoat.scale.set(1.04 + wobble * 0.8, 1 - wobble * 0.5, 0.92);
 
     for (let i = 0; i < this.ears.length; i++) {
       const side = i === 0 ? -1 : 1;
@@ -350,8 +404,8 @@ export class Wabbit {
 
     // Chewing bobs the head and swings the carrot to his mouth.
     const carrotUp = this.chewing ? 1 : 0;
-    this.carrot.position.x = damp(this.carrot.position.x, lerp(0.13, 0.055, carrotUp), 8, dt);
-    this.carrot.position.y = damp(this.carrot.position.y, lerp(0.2, 0.37, carrotUp), 8, dt);
+    this.carrot.position.x = damp(this.carrot.position.x, lerp(0.205, 0.07, carrotUp), 8, dt);
+    this.carrot.position.y = damp(this.carrot.position.y, lerp(0.225, 0.35, carrotUp), 8, dt);
     this.carrot.rotation.z = damp(this.carrot.rotation.z, lerp(-0.5, -1.35, carrotUp), 8, dt);
     if (this.chewing) this.head.rotation.x = Math.sin(this.t * 14) * 0.05;
     else this.head.rotation.x = damp(this.head.rotation.x, 0, 8, dt);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { $, buzz, rand } from '../core/util.js';
 import { sfx } from '../audio/sfx.js';
+import { say } from '../audio/voice.js';
 import { muzzleFlash, showGag, showTaunt, toast } from '../ui/screens.js';
 import {
   chooseGag, randomHunterLine, randomTaunt, rankFor,
@@ -154,7 +155,12 @@ export class HuntPhase {
     if (!this.bestGag || gag.score > this.bestGag.score) this.bestGag = gag;
 
     showGag(gag.label);
-    if (gag.line) setTimeout(() => showTaunt(gag.line, 2400), 520);
+    if (gag.line) {
+      setTimeout(() => {
+        showTaunt(gag.line, 2400);
+        say(gag.line);
+      }, 520);
+    }
 
     // Let the gag breathe before the next shot or duck.
     this.lockout = 0.55;
@@ -181,6 +187,10 @@ export class HuntPhase {
     this.state = 'up';
     this.stateTimer = rand(2.6, 4.6);
 
+    const taunt = randomTaunt();
+    // Only Reginald gets a voice; the hunter mutters to himself in text.
+    say(taunt);
+
     if (spot.kind === 'door') {
       // The door has to be open before he can stroll through it, so the
       // entrance is delayed to sit behind the swing.
@@ -199,7 +209,7 @@ export class HuntPhase {
       buzz(18);
     }
 
-    showTaunt(randomTaunt(), 2600);
+    showTaunt(taunt, 2600);
   }
 
   _hide() {
