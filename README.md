@@ -171,6 +171,41 @@ links to `wxrv://<this page>`. The iQ3Connect XR Viewer registers that scheme
 and reopens it as `https://`, so it is the same game at the same link, with
 real hit-testing.
 
+### When both a sensor and a camera are available
+
+They are not equal partners, and `ar/fusion.js` does not treat them as such. A
+depth sensor reports what is *there*; the floor-line inference reports what the
+picture is *consistent with*. So wherever both have an opinion the sensor wins
+outright: an agreeing inference is replaced by the measurement rather than
+averaged with it, a disagreeing one is dropped, and the inference survives only
+where the sensor is silent — which is the gap it exists to fill.
+
+Being wrong in a *measurable* way turns out to be the useful part. The
+ground-plane estimate scales linearly with the assumed eye height:
+
+```
+distance = eyeHeight / tan(angle below horizon)
+```
+
+So if measurements come back consistently 20% longer than the inference, the
+assumed eye height is 20% too small — and can be corrected. In test, an eye
+height set wrongly to 1.24m is recovered as 1.55m from twenty comparisons
+against a known wall. A device that can measure *anything* improves every
+estimate it cannot reach.
+
+The same comparison answers an earlier problem for free. A headset serves
+geometry from its saved space setup, which may be a different room entirely,
+and it serves it confidently. Wholesale disagreement between what is measured
+and what is seen is the one available signal that the two are not the same
+place, and the scan now says so.
+
+Whether this ever runs depends on something outside the game's control:
+**camera pixels.** iOS Safari has them and no sensor. A headset has a sensor
+and usually will not hand over the image. The standard `camera-access` feature
+is requested and used where granted; the iQ3Connect XR Viewer exposes Mozilla's
+non-standard `computerVision` path, behind its own permission prompt. Where
+neither is available each source simply works alone, which is the common case.
+
 ### Getting real AR on an iPhone
 
 The [iQ3Connect XR Viewer](https://github.com/iq3connectdev/iQ3ConnectXRViewer)

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Vision, VISION_COLUMNS } from './vision.js';
 
 /**
  * The real thing: an `immersive-ar` session with hit-testing against the
@@ -21,7 +22,11 @@ export class WebXRBackend {
     this.stickyHitAt = 0;
     this.hasHitTest = false;
     this.hasDomOverlay = false;
+    this.hasCameraAccess = false;
     this.refSpace = null;
+    this._cameraCanvas = null;
+    this.vision = new Vision(null);
+    this._lastFrame = null;
     this._clock = new THREE.Clock();
   }
 
@@ -36,6 +41,10 @@ export class WebXRBackend {
         // Real room geometry where the runtime has it: planes on Android
         // Chrome, a full scene mesh on headsets that do reconstruction.
         'plane-detection', 'mesh-detection',
+        // Raw camera access, so the image can be read where a sensor also
+        // exists and the two can check each other. Rarely granted; the game
+        // is built to work entirely without it.
+        'camera-access',
       ],
       domOverlay: { root: this.overlayRoot },
     };
@@ -70,6 +79,7 @@ export class WebXRBackend {
      */
     this.hasDomOverlay = !!session.domOverlayState
       || !!session.enabledFeatures?.includes?.('dom-overlay');
+    this.hasCameraAccess = !!session.enabledFeatures?.includes?.('camera-access');
 
     try {
       this.viewerSpace = await session.requestReferenceSpace('viewer');
@@ -93,6 +103,7 @@ export class WebXRBackend {
 
   _tick(time, frame) {
     const dt = Math.min(this._clock.getDelta(), 0.1);
+    this._lastFrame = frame;
     this.lastHit = frame ? this._readHit(frame) : null;
     /*
      * Hold on to the most recent real hit.
@@ -124,6 +135,66 @@ export class WebXRBackend {
     const normal = new THREE.Vector3(0, 1, 0)
       .applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(m)).normalize();
     return { position, normal, real: true };
+  }
+
+  /**
+   * Copy this frame's camera image into a canvas the vision pass can read.
+   *
+   * WebXR hands the camera over as a GPU texture rather than pixels, so it has
+   * to be drawn and read back. Done at analysis resolution, which is small
+   * enough that the readback costs little and happens only a few times a
+   * second.
+   */
+  cameraCanvas(frame, width, height) {
+    if (!this.hasCameraAccess || !frame) return null;
+    const view = frame.getViewerPose?.(this.refSpace)?.views?.[0];
+    const xrCamera = view?.camera;
+    if (!xrCamera) return null;
+
+    const gl = this.world.renderer.getContext();
+    const binding = this._binding
+      ?? (this._binding = new XRWebGLBinding(this.session, gl));
+    const texture = binding.getCameraImage?.(xrCamera);
+    if (!texture) return null;
+
+    if (!this._cameraCanvas) {
+      this._cameraCanvas = document.createElement('canvas');
+      this._readBuffer = new Uint8Array(width * height * 4);
+      this._fbo = gl.createFramebuffer();
+    }
+    this._cameraCanvas.width = width;
+    this._cameraCanvas.height = height;
+
+    const previous = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbo);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    const complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    if (complete) {
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this._readBuffer);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previous);
+    if (!complete) return null;
+
+    const ctx = this._cameraCanvas.getContext('2d');
+    const image = ctx.createImageData(width, height);
+    // GL reads bottom-up; the analysis expects top-down.
+    for (let y = 0; y < height; y++) {
+      const src = (height - 1 - y) * width * 4;
+      image.data.set(this._readBuffer.subarray(src, src + width * 4), y * width * 4);
+    }
+    ctx.putImageData(image, 0, 0);
+    return this._cameraCanvas;
+  }
+
+  /**
+   * Read geometry out of the camera image, where the runtime lets us see it.
+   * Returns nothing at all otherwise, which is the usual case.
+   */
+  analyseScene(floorY = 0) {
+    const canvas = this.cameraCanvas(this._lastFrame, VISION_COLUMNS * 5, VISION_COLUMNS * 6);
+    if (!canvas) return { points: [], columns: 0, confidence: 0, spots: [] };
+    return this.vision.analyse(this.world.camera, floorY, canvas);
   }
 
   setFrameCallback(fn) { this.frameCallback = fn; }

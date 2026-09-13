@@ -560,6 +560,13 @@ diagnostics.install(() => ({
   coverSpots: cover.count,
   scanSource: scanMesh.source,
   visionColumns: scan.visionColumns,
+  cameraAccess: backend?.hasCameraAccess ?? (backend?.mode === 'fallback'),
+  fusion: scan.fusion
+    ? `${scan.fusion.compared} checked, ${Math.round(scan.fusion.agreement * 100)}% agree, `
+      + `${scan.fusion.meanError.toFixed(2)}m mean error, ${scan.fusion.rejected} rejected`
+    : 'no measurements to check against',
+  calibratedEyeHeight: scan.calibratedEyeHeight?.toFixed(2) ?? 'assumed',
+  roomMismatch: scan.roomMismatch,
   occluders: `${occluders.count} tri / ${occluders.markedCount} marked`,
   voice: voiceAvailable() ? `${voiceName()} (${voiceEnabled() ? 'on' : 'off'})` : 'unavailable',
   scanPatches: scanMesh.pointCount,

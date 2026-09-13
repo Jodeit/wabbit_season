@@ -36,8 +36,13 @@ const EDGE_STEP = 0.45;       // depth jump that counts as something to lean aro
 const DOOR_STEP = 0.9;        // how far a doorway must recede past its jambs
 
 export class Vision {
-  constructor(video) {
-    this.video = video;
+  /**
+   * @param {HTMLVideoElement|HTMLCanvasElement|null} source  anything
+   *   drawable. A camera feed in Safari; a canvas holding this frame's XR
+   *   camera image where a headset grants raw access.
+   */
+  constructor(source) {
+    this.video = source;
     this.canvas = document.createElement('canvas');
     this.canvas.width = COLS;
     this.canvas.height = ROWS;
@@ -50,12 +55,16 @@ export class Vision {
   }
 
   get ready() {
-    return !!this.video?.videoWidth && !!this.ctx;
+    return this._sizeOf(this.video) > 0 && !!this.ctx;
+  }
+
+  _sizeOf(source) {
+    return source ? (source.videoWidth ?? source.width ?? 0) : 0;
   }
 
   /** Pull a frame and reduce it to a luminance field. */
-  _grab() {
-    this.ctx.drawImage(this.video, 0, 0, COLS, ROWS);
+  _grab(source) {
+    this.ctx.drawImage(source, 0, 0, COLS, ROWS);
     const { data } = this.ctx.getImageData(0, 0, COLS, ROWS);
     for (let i = 0, p = 0; i < this.luma.length; i++, p += 4) {
       // Rec. 601 luma: cheap, and closer to perceived contrast than a mean.
@@ -127,9 +136,11 @@ export class Vision {
    * @param {number} floorY
    * @returns {{points: Array, columns: number, confidence: number}}
    */
-  analyse(camera, floorY = 0) {
-    if (!this.ready) return { points: [], columns: 0, confidence: 0 };
-    this._grab();
+  analyse(camera, floorY = 0, source = this.video) {
+    if (!this.ctx || this._sizeOf(source) <= 0) {
+      return { points: [], columns: 0, confidence: 0, spots: [] };
+    }
+    this._grab(source);
     this.available = true;
 
     const { rows, strength } = this._floorRows();

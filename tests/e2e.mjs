@@ -689,6 +689,80 @@ try {
   check('nothing it suggests floats',
     scene.spots.every((sp) => sp.y < 1.36), JSON.stringify(scene.spots));
 
+  console.log('\n• sensor verifying the camera inference');
+  const fusion = await page.evaluate(async () => {
+    const { world } = window.WabbitSeason;
+    const T = window.__THREE;
+    const { reconcile, calibrateEyeHeight, roomLooksWrong } =
+      await import('./src/ar/fusion.js');
+
+    world.camera.position.set(0, 1.55, 0);
+    world.camera.rotation.set(0, 0, 0, 'YXZ');
+    world.camera.updateMatrixWorld(true);
+
+    // A measured wall, squarely 3m ahead.
+    const wall = new T.Mesh(
+      new T.PlaneGeometry(8, 4), new T.MeshBasicMaterial());
+    wall.position.set(0, 1.55, -3);
+    wall.updateMatrixWorld(true);
+
+    const along = (d) => new T.Vector3(0, 1.55, -d);
+
+    // Inference that is close but not exact: within arguing distance, so it
+    // should be confirmed and snapped to the measurement.
+    const near = [];
+    for (let i = 0; i < 12; i++) near.push({ p: along(2.88), n: new T.Vector3(0, 0, 1) });
+    const nearResult = reconcile({ inferred: near, surface: wall, camera: world.camera });
+
+    // Inference that is consistently 20% short — exactly what an eye height
+    // set 20% too low would produce. Too far out to be trusted as a position,
+    // but its *ratio* is still evidence about the assumption behind it.
+    const short = [];
+    for (let i = 0; i < 20; i++) short.push({ p: along(2.4), n: new T.Vector3(0, 0, 1) });
+    const shortResult = reconcile({ inferred: short, surface: wall, camera: world.camera });
+
+    // Inference that is simply wrong: a different room.
+    const wrong = [];
+    for (let i = 0; i < 30; i++) wrong.push({ p: along(0.9), n: new T.Vector3(0, 0, 1) });
+    const wrongResult = reconcile({ inferred: wrong, surface: wall, camera: world.camera });
+
+    // And with no sensor at all, the inference must simply pass through.
+    const alone = reconcile({ inferred: short, surface: null, camera: world.camera });
+
+    return {
+      shortScale: +shortResult.stats.scale.toFixed(3),
+      shortRejected: shortResult.stats.rejected,
+      nearAgreed: nearResult.stats.agreed,
+      corrected: +(nearResult.accepted[0]?.p.distanceTo(
+        world.camera.getWorldPosition(new T.Vector3())) ?? 0).toFixed(2),
+      calibrated: +(calibrateEyeHeight(1.24, shortResult.stats) ?? 0).toFixed(2),
+      wrongRejected: wrongResult.stats.rejected,
+      wrongAccepted: wrongResult.accepted.length,
+      mismatch: roomLooksWrong(wrongResult.stats),
+      aloneKept: alone.accepted.length,
+      aloneUnverified: alone.stats.unverified,
+    };
+  });
+  console.log(`        scale ${fusion.shortScale}, calibrated eye height ${fusion.calibrated}m`);
+
+  // A measurement always beats an inference; the inferred point is replaced
+  // by the measured one rather than averaged with it.
+  check('measurements correct agreeing inferences',
+    fusion.nearAgreed === 12 && fusion.corrected === 3,
+    `${fusion.nearAgreed} agreed, snapped 2.88m -> ${fusion.corrected}m`);
+  check('an inference too far out is dropped, not averaged in',
+    fusion.shortRejected === 20, `${fusion.shortRejected} rejected`);
+  check('and reject disagreeing ones outright',
+    fusion.wrongRejected === 30 && fusion.wrongAccepted === 0, JSON.stringify(fusion));
+  // The ground-plane estimate scales with eye height, so a systematic error
+  // in one is a measurable error in the other.
+  check('a sensor can calibrate the assumed eye height',
+    Math.abs(fusion.calibrated - 1.55) < 0.05, `${fusion.calibrated}m from a wrong 1.24m`);
+  check('wholesale disagreement is flagged as the wrong room', fusion.mismatch);
+  // Safari has no sensor; the inference must survive untouched there.
+  check('with no sensor the inference passes through unaltered',
+    fusion.aloneKept === 20 && fusion.aloneUnverified === 20, JSON.stringify(fusion));
+
   console.log('\n• occlusion with nothing sensed at all');
   const standIns = await page.evaluate(() => {
     const { occluders, cover, scanMesh } = window.WabbitSeason;

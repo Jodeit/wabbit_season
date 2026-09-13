@@ -5,6 +5,7 @@ import { toast } from '../ui/screens.js';
 import { KINDS } from './cover.js';
 import { ScanMesh } from './scanmesh.js';
 import { detectRoom } from './detect.js';
+import { calibrateEyeHeight, reconcile, roomLooksWrong } from '../ar/fusion.js';
 
 const MIN_SPOTS = 2;
 const MAX_SPOTS = 6;
@@ -60,6 +61,9 @@ export class ScanPhase {
     this.lastVisionAt = -Infinity;
     this.visionColumns = 0;
     this.visionSpots = [];
+    this.fusion = null;
+    this.calibratedEyeHeight = null;
+    this.roomMismatch = false;
     this.time = 0;
 
     this.els = {
@@ -117,16 +121,41 @@ export class ScanPhase {
     this.scanMesh.syncXRGeometry(info.frame, info.refSpace);
 
     // Where nothing is sensed, read what the camera image can tell us.
-    if (!this.scanMesh.sensed
-      && this.backend.analyseScene
-      && this.time - this.lastVisionAt > VISION_EVERY) {
+    if (this.backend.analyseScene && this.time - this.lastVisionAt > VISION_EVERY) {
       this.lastVisionAt = this.time;
       const { points, columns, spots } = this.backend.analyseScene(this.cover.floorY);
       this.visionColumns = columns;
-      for (const { p, n } of points) this.scanMesh.addInferred(p, n);
+
+      /*
+       * Where a sensor is also present, it arbitrates.
+       *
+       * The two are not equal partners: a sensor reports what is there, the
+       * image reports what the picture is consistent with. So measurements
+       * overrule inferences wherever both have an opinion, and the inference
+       * survives only where the sensor is silent — which is the gap it exists
+       * to fill.
+       */
+      const measured = this.scanMesh.hasRuntimeOccluders
+        ? this.scanMesh.geometryGroup
+        : (this.scanMesh.sensed ? this.scanMesh.surface : null);
+      const { accepted, stats } = reconcile({
+        inferred: points, surface: measured, camera: this.world.camera,
+      });
+      this.fusion = stats;
+
+      // Being wrong in a measurable way is useful: the ground-plane estimate
+      // scales with the assumed eye height, so a sensor can calibrate it.
+      const better = calibrateEyeHeight(this.backend.eyeHeight ?? 1.55, stats);
+      if (better && this.backend.setEyeHeight) {
+        this.backend.setEyeHeight(better);
+        this.calibratedEyeHeight = better;
+      }
+      this.roomMismatch = roomLooksWrong(stats);
+
+      for (const { p, n } of accepted) this.scanMesh.addInferred(p, n);
       // Hiding places the image itself suggested, kept for the detection pass.
       this.visionSpots = spots ?? [];
-      if (points.length) {
+      if (accepted.length) {
         this.scanMesh.rebuild();
         this.occluders.update(this.scanMesh);
       }
@@ -251,6 +280,8 @@ export class ScanPhase {
         : 'Found one — keep sweeping for more.';
     } else if (this.cover.count > 0) {
       this.els.sub.textContent = 'Tap more furniture, or start the hunt.';
+    } else if (this.roomMismatch) {
+      this.els.sub.textContent = 'This doesn\'t look like the woom the headset has saved.';
     } else if (this.scanMesh.source === 'vision') {
       this.els.sub.textContent = 'Weading the woom from the camewa — keep looking awound.';
     } else if (this.scanMesh.source !== 'points') {
